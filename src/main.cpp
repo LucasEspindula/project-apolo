@@ -1,11 +1,16 @@
-// Apolo 0.1.0 - monitor e limpeza conservadora de memoria para Windows 11.
+// Apolo 0.2.0 - monitor e limpeza conservadora de memoria para Windows 11.
 // Implementacao independente, utilizando APIs documentadas do Windows.
 
 #include <windows.h>
 #include <psapi.h>
 #include <tlhelp32.h>
+#include <shellapi.h>
+#include <shlobj.h>
 
+#include <algorithm>
 #include <array>
+#include <cstdio>
+#include <cstdlib>
 #include <cwchar>
 #include <iterator>
 #include <string>
@@ -18,6 +23,27 @@ constexpr UINT_PTR kRefreshTimer = 1;
 constexpr int kRefreshButton = 101;
 constexpr int kCleanButton = 102;
 constexpr UINT kRefreshIntervalMs = 2500;
+constexpr UINT kTrayMessage = WM_APP + 1;
+constexpr UINT kTrayId = 1;
+constexpr int kHistory = 103, kAuto = 104, kThreshold = 105, kInterval = 106;
+constexpr int kStartHidden = 107, kSave = 108;
+constexpr int kOpenMenu = 301, kCleanMenu = 302, kHistoryMenu = 303, kExitMenu = 304;
+constexpr std::array<int, 6> kLimits = {70, 75, 80, 85, 90, 95};
+constexpr std::array<int, 5> kIntervals = {15, 30, 60, 120, 240};
+struct Options {
+    bool automatic = false;
+    int threshold = 85;
+    int cooldown = 60;
+    bool startHidden = false;
+};
+Options gOptions;
+HWND gAutomatic = nullptr, gThreshold = nullptr, gInterval = nullptr;
+HWND gStartHidden = nullptr, gSaveButton = nullptr;
+HFONT gTitleFont = nullptr;
+bool gLocked = false, gTray = false, gExiting = false;
+ULONGLONG gLastAttempt = 0;
+UINT gTaskbarCreated = 0;
+std::wstring gConfig, gLog, gPolicyFile;
 
 HWND gRamLabel = nullptr;
 HWND gCommitLabel = nullptr;
@@ -33,6 +59,8 @@ struct MemorySnapshot {
     bool valid = false;
 };
 
+MemorySnapshot gLastSnapshot;
+
 struct CleanupResult {
     unsigned eligible = 0;
     unsigned cleaned = 0;
@@ -41,6 +69,64 @@ struct CleanupResult {
     MemorySnapshot after;
 };
 
+bool exists(const std::wstring& path) {
+    DWORD attrs = path.empty() ? INVALID_FILE_ATTRIBUTES : GetFileAttributesW(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+std::wstring knownPath(REFKNOWNFOLDERID id) {
+    PWSTR p = nullptr;
+    if (FAILED(SHGetKnownFolderPath(id, KF_FLAG_CREATE, nullptr, &p))) return L"";
+    std::wstring result(p);
+    CoTaskMemFree(p);
+    return result;
+}
+template<size_t N> int closest(int value, const std::array<int,N>& a) {
+    int result = a[0];
+    for (int option : a)
+        if (std::abs(option-value) < std::abs(result-value)) result = option;
+    return result;
+}
+void loadConfig() {
+    std::wstring user = knownPath(FOLDERID_LocalAppData);
+    if (!user.empty()) {
+        std::wstring dir = user + L"\\Apolo";
+        CreateDirectoryW(dir.c_str(), nullptr);
+        gConfig = dir + L"\\settings.ini";
+        gLog = dir + L"\\history.csv";
+    }
+    std::wstring shared = knownPath(FOLDERID_ProgramData);
+    if (!shared.empty()) {
+        gPolicyFile = shared + L"\\Apolo\\policy.ini";
+        gLocked = exists(gPolicyFile);
+    }
+    const auto read = [](const std::wstring& path) {
+        if (!exists(path)) return;
+        gOptions.automatic = GetPrivateProfileIntW(L"Apolo", L"AutoCleanEnabled",
+            gOptions.automatic ? 1 : 0, path.c_str()) != 0;
+        gOptions.threshold = GetPrivateProfileIntW(L"Apolo", L"AutoCleanThreshold",
+            gOptions.threshold, path.c_str());
+        gOptions.cooldown = GetPrivateProfileIntW(L"Apolo", L"AutoCleanCooldownMinutes",
+            gOptions.cooldown, path.c_str());
+        gOptions.startHidden = GetPrivateProfileIntW(L"Apolo", L"StartMinimized",
+            gOptions.startHidden ? 1 : 0, path.c_str()) != 0;
+    };
+    read(gConfig);
+    if (gLocked) read(gPolicyFile);
+    gOptions.threshold = closest(gOptions.threshold, kLimits);
+    gOptions.cooldown = closest(gOptions.cooldown, kIntervals);
+}
+bool writeConfig() {
+    if (gLocked || gConfig.empty()) return false;
+    const auto write = [](const wchar_t* key, int value) {
+        std::wstring text = std::to_wstring(value);
+        return WritePrivateProfileStringW(L"Apolo", key, text.c_str(),
+                                           gConfig.c_str()) != FALSE;
+    };
+    return write(L"AutoCleanEnabled", gOptions.automatic ? 1 : 0) &&
+           write(L"AutoCleanThreshold", gOptions.threshold) &&
+           write(L"AutoCleanCooldownMinutes", gOptions.cooldown) &&
+           write(L"StartMinimized", gOptions.startHidden ? 1 : 0);
+}
 double toGiB(ULONGLONG bytes) {
     return static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0);
 }
@@ -73,7 +159,8 @@ MemorySnapshot readMemory() {
 }
 
 void refreshDisplay() {
-    const MemorySnapshot memory = readMemory();
+    gLastSnapshot = readMemory();
+    const MemorySnapshot& memory = gLastSnapshot;
 
     if (!memory.valid) {
         SetWindowTextW(gRamLabel, L"Nao foi possivel consultar a memoria.");
@@ -240,6 +327,131 @@ CleanupResult cleanCurrentUserProcesses() {
     return result;
 }
 
+
+bool history(bool autoMode, const CleanupResult& r) {
+    if (gLog.empty() || !r.before.valid || !r.after.valid) return false;
+    HANDLE h = CreateFileW(gLog.c_str(), FILE_APPEND_DATA | FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER length = {};
+    bool ok = GetFileSizeEx(h, &length) != FALSE;
+    if (ok && length.QuadPart == 0) {
+        constexpr char header[] = "data_hora;origem;tratados;elegiveis;ignorados;disponivel_antes_bytes;disponivel_depois_bytes;variacao_bytes\r\n";
+        DWORD written = 0;
+        ok = WriteFile(h, header, DWORD(sizeof(header)-1), &written, nullptr) != FALSE &&
+             written == sizeof(header)-1;
+    }
+    SYSTEMTIME t = {};
+    GetLocalTime(&t);
+    char line[512] = {};
+    LONGLONG delta = LONGLONG(r.after.available)-LONGLONG(r.before.available);
+    int n = std::snprintf(line,sizeof(line),
+        "%04u-%02u-%02u %02u:%02u:%02u;%s;%u;%u;%u;%llu;%llu;%lld\r\n",
+        unsigned(t.wYear),unsigned(t.wMonth),unsigned(t.wDay),
+        unsigned(t.wHour),unsigned(t.wMinute),unsigned(t.wSecond),
+        autoMode ? "automatica" : "manual",r.cleaned,r.eligible,r.skipped,
+        static_cast<unsigned long long>(r.before.available),
+        static_cast<unsigned long long>(r.after.available),
+        static_cast<long long>(delta));
+    if (ok && n>0 && size_t(n)<sizeof(line)) {
+        DWORD written = 0;
+        ok = WriteFile(h,line,DWORD(n),&written,nullptr)!=FALSE &&
+             written == DWORD(n);
+    } else ok=false;
+    CloseHandle(h);
+    return ok;
+}
+void viewHistory(HWND window) {
+    if (!exists(gLog)) {
+        MessageBoxW(window,L"Nenhuma limpeza registrada.",L"Apolo",MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    wchar_t path[MAX_PATH] = {};
+    if (!GetSystemDirectoryW(path,MAX_PATH)) return;
+    std::wstring notepad = std::wstring(path) + L"\\notepad.exe";
+    std::wstring args = L"\"" + gLog + L"\"";
+    ShellExecuteW(window,L"open",notepad.c_str(),args.c_str(),nullptr,SW_SHOWNORMAL);
+}
+void cleanNow(HWND window,bool autoMode) {
+    if (!autoMode && MessageBoxW(window,
+        L"Reduzir o working set de aplicativos pode causar lentidão temporária "
+        L"e não garante aumento de desempenho.\n\nDeseja continuar?",
+        L"Apolo - Confirmação",MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2)!=IDYES) return;
+    gLastAttempt = GetTickCount64();
+    SetWindowTextW(gStatusLabel,autoMode ? L"Limpeza automática..." : L"Limpeza manual...");
+    CleanupResult r = cleanCurrentUserProcesses();
+    refreshDisplay();
+    bool saved = history(autoMode,r);
+    wchar_t text[420] = {};
+    double delta = r.before.valid && r.after.valid ?
+        toGiB(r.after.available)-toGiB(r.before.available) : 0.0;
+    std::swprintf(text,std::size(text),
+        L"%s: %u/%u processos (%u ignorados). Variação observada: %+.2f GiB.",
+        autoMode ? L"Automática" : L"Manual",r.cleaned,r.eligible,r.skipped,delta);
+    std::wstring message(text);
+    if(!saved) message += L" Histórico não salvo.";
+    SetWindowTextW(gStatusLabel,message.c_str());
+}
+void openWindow(HWND h) { ShowWindow(h,SW_SHOWNORMAL); SetForegroundWindow(h); }
+bool iconAdd(HWND h) {
+    NOTIFYICONDATAW n = {};
+    n.cbSize=sizeof(n);n.hWnd=h;n.uID=kTrayId;
+    n.uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP;n.uCallbackMessage=kTrayMessage;
+    n.hIcon=LoadIconW(nullptr,IDI_INFORMATION);
+    wcscpy_s(n.szTip,L"Apolo - Monitor de memória");
+    gTray = Shell_NotifyIconW(NIM_ADD,&n)!=FALSE;
+    if(gTray) {n.uVersion=NOTIFYICON_VERSION_4;Shell_NotifyIconW(NIM_SETVERSION,&n);}
+    return gTray;
+}
+void iconRemove(HWND h) {
+    if(!gTray)return;
+    NOTIFYICONDATAW n={};n.cbSize=sizeof(n);n.hWnd=h;n.uID=kTrayId;
+    Shell_NotifyIconW(NIM_DELETE,&n);gTray=false;
+}
+void trayMenu(HWND h) {
+    HMENU menu=CreatePopupMenu();if(!menu)return;
+    AppendMenuW(menu,MF_STRING,kOpenMenu,L"Abrir");
+    AppendMenuW(menu,MF_STRING,kCleanMenu,L"Limpar agora...");
+    AppendMenuW(menu,MF_STRING,kHistoryMenu,L"Ver histórico");
+    AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
+    AppendMenuW(menu,MF_STRING,kExitMenu,L"Sair do Apolo");
+    POINT p={};GetCursorPos(&p);SetForegroundWindow(h);
+    TrackPopupMenu(menu,TPM_RIGHTBUTTON|TPM_BOTTOMALIGN|TPM_LEFTALIGN,
+                   p.x,p.y,0,h,nullptr);
+    PostMessageW(h,WM_NULL,0,0);DestroyMenu(menu);
+}
+void combo(HWND h,const int* items,size_t n,int selected,const wchar_t* suffix) {
+    for(size_t i=0;i<n;++i) {
+        std::wstring t=std::to_wstring(items[i])+suffix;
+        SendMessageW(h,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(t.c_str()));
+        if(items[i]==selected)SendMessageW(h,CB_SETCURSEL,i,0);
+    }
+}
+void saveUi(HWND window) {
+    if(gLocked)return;
+    bool enabled=SendMessageW(gAutomatic,BM_GETCHECK,0,0)==BST_CHECKED;
+    if(enabled && !gOptions.automatic &&
+       MessageBoxW(window,L"Limpeza automática pode causar lentidão. "
+       L"Ative somente após teste em máquina piloto.\n\nContinuar?",
+       L"Apolo - Automação",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES) {
+        SendMessageW(gAutomatic,BM_SETCHECK,BST_UNCHECKED,0);return;
+    }
+    LRESULT a=SendMessageW(gThreshold,CB_GETCURSEL,0,0);
+    LRESULT b=SendMessageW(gInterval,CB_GETCURSEL,0,0);
+    if(a<0||b<0||size_t(a)>=kLimits.size()||size_t(b)>=kIntervals.size())return;
+    Options previous=gOptions;
+    gOptions.automatic=enabled;gOptions.threshold=kLimits[size_t(a)];
+    gOptions.cooldown=kIntervals[size_t(b)];
+    gOptions.startHidden=SendMessageW(gStartHidden,BM_GETCHECK,0,0)==BST_CHECKED;
+    if(!writeConfig()) {
+        gOptions=previous;
+        MessageBoxW(window,L"Falha ao salvar configurações.",L"Apolo",MB_ICONERROR);
+        return;
+    }
+    gLastAttempt=GetTickCount64();
+    SetWindowTextW(gStatusLabel,L"Configurações salvas. Intervalo de segurança reiniciado.");
+}
+
 void applyFont(HWND control) {
     if (control && gFont) {
         SendMessageW(control, WM_SETFONT,
@@ -261,83 +473,103 @@ HWND addControl(HWND parent, const wchar_t* klass,
 
 LRESULT CALLBACK mainWindowProc(HWND window, UINT message,
                                 WPARAM wParam, LPARAM lParam) {
+    if(gTaskbarCreated && message==gTaskbarCreated) {iconAdd(window);return 0;}
     switch (message) {
     case WM_CREATE: {
-        gFont = CreateFontW(-19, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                            DEFAULT_PITCH, L"Segoe UI");
-
-        addControl(window, L"STATIC", L"APOLO  |  Monitor de memoria",
-                   SS_LEFT, 25, 23, 590, 35);
-        gRamLabel = addControl(window, L"STATIC", L"Consultando...",
-                               SS_LEFT, 25, 79, 590, 32);
-        gCommitLabel = addControl(window, L"STATIC", L"", SS_LEFT,
-                                  25, 121, 590, 32);
-
-        addControl(window, L"BUTTON", L"Atualizar", BS_PUSHBUTTON,
-                   25, 172, 145, 38, kRefreshButton);
-        addControl(window, L"BUTTON", L"Limpar memoria (manual)",
-                   BS_PUSHBUTTON, 183, 172, 234, 38, kCleanButton);
-
-        gStatusLabel = addControl(
-            window, L"STATIC",
-            L"Sem atualizacoes automaticas, rede ou execucao elevada silenciosa.",
-            SS_LEFT, 25, 232, 590, 66);
-
-        SetTimer(window, kRefreshTimer, kRefreshIntervalMs, nullptr);
+        gFont=CreateFontW(-19,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,
+            DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
+        gTitleFont=CreateFontW(-30,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,
+            DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
+        HWND title=addControl(window,L"STATIC",L"APOLO | Desempenho",
+                              SS_LEFT,25,18,670,46);
+        if(gTitleFont)SendMessageW(title,WM_SETFONT,
+                                   reinterpret_cast<WPARAM>(gTitleFont),TRUE);
+        addControl(window,L"STATIC",L"Monitor de memória | v0.2.0 (piloto)",
+                   SS_LEFT,27,70,650,28);
+        gRamLabel=addControl(window,L"STATIC",L"Consultando...",
+                             SS_LEFT,28,128,708,32);
+        gCommitLabel=addControl(window,L"STATIC",L"",SS_LEFT,28,166,708,32);
+        addControl(window,L"BUTTON",L"Atualizar",BS_PUSHBUTTON,28,221,150,40,kRefreshButton);
+        addControl(window,L"BUTTON",L"Limpar memória (manual)",BS_PUSHBUTTON,
+                   192,221,255,40,kCleanButton);
+        addControl(window,L"BUTTON",L"Ver histórico",BS_PUSHBUTTON,
+                   461,221,170,40,kHistoryButton);
+        addControl(window,L"STATIC",L"CONFIGURAÇÕES",SS_LEFT,28,291,400,30);
+        gAutomatic=addControl(window,L"BUTTON",L"Ativar limpeza automática",
+            BS_AUTOCHECKBOX|WS_TABSTOP,28,330,354,30,kAuto);
+        gStartHidden=addControl(window,L"BUTTON",L"Iniciar na bandeja",
+            BS_AUTOCHECKBOX|WS_TABSTOP,430,330,290,30,kStartHidden);
+        addControl(window,L"STATIC",L"Limiar RAM",SS_LEFT,28,383,148,28);
+        gThreshold=addControl(window,L"COMBOBOX",L"",
+            CBS_DROPDOWNLIST|WS_VSCROLL|WS_TABSTOP,174,371,101,180,kThreshold);
+        addControl(window,L"STATIC",L"Intervalo mínimo",SS_LEFT,298,383,175,28);
+        gInterval=addControl(window,L"COMBOBOX",L"",
+            CBS_DROPDOWNLIST|WS_VSCROLL|WS_TABSTOP,477,371,103,180,kInterval);
+        addControl(window,L"STATIC",L"min",SS_LEFT,584,382,40,28);
+        gSaveButton=addControl(window,L"BUTTON",L"Salvar",
+            BS_PUSHBUTTON,646,371,100,38,kSave);
+        addControl(window,L"STATIC",
+            gLocked ? L"Política corporativa ativa: opções bloqueadas pela TI." :
+                      L"Automação desativada por padrão para proteger o desempenho.",
+            SS_LEFT,28,427,705,28);
+        gStatusLabel=addControl(window,L"STATIC",L"Pronto.",SS_LEFT,28,480,710,65);
+        combo(gThreshold,kLimits.data(),kLimits.size(),gOptions.threshold,L"%");
+        combo(gInterval,kIntervals.data(),kIntervals.size(),gOptions.cooldown,L"");
+        SendMessageW(gAutomatic,BM_SETCHECK,
+            gOptions.automatic?BST_CHECKED:BST_UNCHECKED,0);
+        SendMessageW(gStartHidden,BM_SETCHECK,
+            gOptions.startHidden?BST_CHECKED:BST_UNCHECKED,0);
+        if(gLocked) {
+            EnableWindow(gAutomatic,FALSE);EnableWindow(gStartHidden,FALSE);
+            EnableWindow(gThreshold,FALSE);EnableWindow(gInterval,FALSE);
+            EnableWindow(gSaveButton,FALSE);
+        }
+        iconAdd(window);
+        gLastAttempt=GetTickCount64();
+        SetTimer(window,kRefreshTimer,kRefreshIntervalMs,nullptr);
         refreshDisplay();
         return 0;
     }
 
     case WM_TIMER:
-        if (wParam == kRefreshTimer) {
+        if(wParam==kRefreshTimer) {
             refreshDisplay();
+            ULONGLONG elapsed=GetTickCount64()-gLastAttempt;
+            ULONGLONG interval=ULONGLONG(gOptions.cooldown)*60'000ULL;
+            if(gOptions.automatic && gLastSnapshot.valid &&
+               gLastSnapshot.loadPercent>=DWORD(gOptions.threshold) &&
+               elapsed>=interval) cleanNow(window,true);
         }
         return 0;
 
     case WM_COMMAND:
-        if (LOWORD(wParam) == kRefreshButton) {
-            refreshDisplay();
-        } else if (LOWORD(wParam) == kCleanButton) {
-            const int response = MessageBoxW(
-                window,
-                L"A operacao reduz os conjuntos de trabalho de aplicativos "
-                L"da sua conta e pode causar lentidao temporaria.\n\n"
-                L"Deseja continuar?",
-                L"Apolo - Confirmar limpeza",
-                MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
-
-            if (response == IDYES) {
-                SetWindowTextW(gStatusLabel, L"Executando limpeza...");
-                const CleanupResult result = cleanCurrentUserProcesses();
-                refreshDisplay();
-
-                wchar_t summary[512] = {};
-                if (result.before.valid && result.after.valid) {
-                    const double change = toGiB(result.after.available) -
-                                          toGiB(result.before.available);
-                    std::swprintf(
-                        summary, std::size(summary),
-                        L"Processos tratados: %u de %u elegiveis "
-                        L"(%u ignorados/falharam). "
-                        L"Variacao observada de RAM disponivel: %+.2f GiB.",
-                        result.cleaned, result.eligible,
-                        result.skipped, change);
-                } else {
-                    std::swprintf(
-                        summary, std::size(summary),
-                        L"Processos tratados: %u de %u elegiveis "
-                        L"(%u ignorados/falharam).",
-                        result.cleaned, result.eligible, result.skipped);
-                }
-                SetWindowTextW(gStatusLabel, summary);
-            }
+        switch(LOWORD(wParam)) {
+        case kRefreshButton:refreshDisplay();break;
+        case kCleanButton:
+        case kCleanMenu:cleanNow(window,false);break;
+        case kHistoryButton:
+        case kHistoryMenu:viewHistory(window);break;
+        case kSave:saveUi(window);break;
+        case kOpenMenu:openWindow(window);break;
+        case kExitMenu:gExiting=true;DestroyWindow(window);break;
         }
         return 0;
+    case kTrayMessage: {
+        UINT e=LOWORD(lParam);
+        if(e==WM_LBUTTONDBLCLK||e==NIN_SELECT||e==NIN_KEYSELECT)openWindow(window);
+        else if(e==WM_RBUTTONUP||e==WM_CONTEXTMENU)trayMenu(window);
+        return 0;
+    }
+    case WM_CLOSE:
+        if(!gExiting && gTray) {ShowWindow(window,SW_HIDE);return 0;}
+        DestroyWindow(window);return 0;
 
     case WM_DESTROY:
         KillTimer(window, kRefreshTimer);
+        iconRemove(window);
+        if(gTitleFont)DeleteObject(gTitleFont);
         if (gFont) {
             DeleteObject(gFont);
             gFont = nullptr;
@@ -352,6 +584,10 @@ LRESULT CALLBACK mainWindowProc(HWND window, UINT message,
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     SetProcessDPIAware();
+    loadConfig();
+    gTaskbarCreated=RegisterWindowMessageW(L"TaskbarCreated");
+    HWND running=FindWindowW(kWindowClass,nullptr);
+    if(running){openWindow(running);return 0;}
 
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
@@ -369,15 +605,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     HWND window = CreateWindowExW(
         0, kWindowClass, L"Apolo - Gerenciamento de memoria",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 655, 360,
+        CW_USEDEFAULT, CW_USEDEFAULT, 795, 603,
         nullptr, nullptr, instance, nullptr);
 
     if (!window) {
         return 2;
     }
 
-    ShowWindow(window, showCommand);
-    UpdateWindow(window);
+    if(!gOptions.startHidden || !gTray) {
+        ShowWindow(window,showCommand);
+        UpdateWindow(window);
+    }
 
     MSG msg = {};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
