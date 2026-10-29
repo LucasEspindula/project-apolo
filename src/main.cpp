@@ -25,7 +25,7 @@ constexpr int kCleanButton = 102;
 constexpr UINT kRefreshIntervalMs = 2500;
 constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kTrayId = 1;
-constexpr int kHistory = 103, kAuto = 104, kThreshold = 105, kInterval = 106;
+constexpr int kHistoryButton = 103, kAuto = 104, kThreshold = 105, kInterval = 106;
 constexpr int kStartHidden = 107, kSave = 108;
 constexpr int kOpenMenu = 301, kCleanMenu = 302, kHistoryMenu = 303, kExitMenu = 304;
 constexpr std::array<int, 6> kLimits = {70, 75, 80, 85, 90, 95};
