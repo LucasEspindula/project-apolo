@@ -1,0 +1,28 @@
+# Visual Studio / CMake
+/.vs/
+/out/
+/build/
+/cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# Binary build outputs
+*.exe
+*.dll
+*.obj
+*.pdb
+*.ilk
+*.ipch
+*.pch
+*.tlog
+*.lastbuildstate
+*.log
+
+# Local settings
+.DS_Store
+Thumbs.db
