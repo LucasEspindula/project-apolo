@@ -16,7 +16,7 @@ O **Apolo** é um monitor e gerenciador conservador de memória desenvolvido de 
 | Limpeza automática configurável | Novo na v0.2; desligada por padrão |
 | Histórico CSV de cada operação | Novo na v0.2 |
 | Modelo de política de TI (INI) | Novo na v0.2; apenas piloto |
-| Compilação automática Windows x64 | Configurada via GitHub Actions |
+| Compilação Windows x64 | Manual no Visual Studio do desenvolvedor |
 | CPU total (amostragem de tempo ocioso) | Novo na v0.3 |
 | Taxas de leitura e gravação em disco (MiB/s) | Novo na v0.3 |
 | Três processos da conta atual com maior working set | Novo na v0.3 |
@@ -59,7 +59,7 @@ cmake --build build --config Release
 
 **Feche a versão antiga do Apolo antes de abrir a v0.3.** O Windows pode manter a v0.1 aberta enquanto você inicia outra compilação.
 
-O repositório também possui um workflow na aba Actions, que tenta compilar usando Visual Studio/MSVC em Windows x64. O resultado da compilação deve ser verificado nessa aba; build bem-sucedida não substitui os testes funcionais.
+**Fluxo adotado:** o GitHub armazena somente código, histórico e documentação. Não executamos build automática no GitHub Actions; o desenvolvedor faz `git pull`, compila localmente no Visual Studio e valida a execução.
 
 ## Painel de desempenho da v0.3
 
@@ -125,12 +125,12 @@ O script copia o executável para Program Files\Apolo e o modelo de política pa
 4. Modificar configurações, clicar Salvar e conferir persistência após reiniciar.
 5. Confirmar que a limpeza automática permanece desligada por padrão; só testar em máquina piloto autorizada.
 6. Testar política com ACLs verificadas, confirmando que ela prevalece e bloqueia a edição.
-7. Consultar o resultado da compilação na aba Actions do GitHub.
+7. Conferir a saída de compilação do Visual Studio e registrar os erros encontrados para correção no próximo commit.
 
 ## Histórico
 
 - **v0.1.0:** monitoramento e limpeza manual. Compilada e testada pelo proprietário no Windows 11.
-- **v0.2.0 (piloto):** bandeja, configurações, histórico, automação opcional, política de TI e build no GitHub Actions.
+- **v0.2.0 (piloto):** bandeja, configurações, histórico, automação opcional, política de TI. Compilação realizada manualmente no Visual Studio.
 - **v0.3.0 (piloto):** monitoramento de CPU, taxa de E/S do disco, principais processos da conta atual e sinais simples de atenção. **Validação funcional no Windows ainda pendente.**
 
 ## Roadmap
@@ -139,5 +139,9 @@ O script copia o executável para Program Files\Apolo e o modelo de política pa
 2. Refinar interface e monitorar pressão real de memória (paginação, commit, falhas de página relevantes).
 3. Construir diagnósticos com base em histórico e métricas mensuráveis.
 4. Planejar instalação assinada e distribuição corporativa, depois painel central.
+
+## Fluxo de desenvolvimento
+
+A cada atualização, código e `README.md` seguem juntos em commit no GitHub. Na máquina Windows do desenvolvedor, atualizar com `git pull origin main` e compilar com o Visual Studio (`x64-Release`). **Não usamos GitHub Actions para compilar automaticamente.**
 
 A licença formal para distribuição pública ainda será definida.
