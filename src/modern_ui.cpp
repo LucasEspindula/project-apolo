@@ -320,7 +320,8 @@ void overview() {
     button(gX+gContentW-304,rowY-5,108,34,L"Atualizar",kRefresh);
     button(gX+gContentW-184,rowY-5,184,34,L"Limpar memória",kClean,true);
     const float top=rowY+43;
-    processRows(top,3,true);
+    const int visible=std::clamp(static_cast<int>((gHeight-77.0f-top)/34.0f),1,3);
+    processRows(top,visible,true);
 }
 
 void performancePage() {
@@ -329,8 +330,8 @@ void performancePage() {
     pill(bx,141,97,33,L"1 min",gRange==0,kRangeBase);
     pill(bx+105,141,97,33,L"5 min",gRange==1,kRangeBase+1);
     pill(bx+210,141,113,33,L"15 min",gRange==2,kRangeBase+2);
-    const float available=std::max(405.0f,gHeight-216.0f);
-    const float chartH=std::max(105.0f,(available-26.0f)/3.0f);
+    const float available=std::max(405.0f,gHeight-291.0f);
+    const float chartH=std::max(105.0f,available/3.0f);
     for(int i=0;i<3;++i)
         drawGraph(gX,185+i*(chartH+13),gContentW,chartH,i);
 }
