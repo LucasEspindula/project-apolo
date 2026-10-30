@@ -1,4 +1,4 @@
-// Apolo 0.4.0 - monitoramento de desempenho e limpeza conservadora para Windows 11.
+// Apolo 0.5.0 - monitoramento de desempenho e limpeza conservadora para Windows 11.
 // Implementacao independente, utilizando APIs documentadas do Windows.
 
 #include <windows.h>
@@ -9,6 +9,8 @@
 
 #include "performance.h"
 #include "analysis.h"
+#include "dashboard_ui.h"
+#include <commctrl.h>
 
 #include <algorithm>
 #include <array>
@@ -42,7 +44,7 @@ struct Options {
 Options gOptions;
 HWND gAutomatic = nullptr, gThreshold = nullptr, gInterval = nullptr;
 HWND gStartHidden = nullptr, gSaveButton = nullptr;
-HFONT gTitleFont = nullptr;
+apolo::DashboardUi gUi;
 HWND gCpuLabel = nullptr, gDiskLabel = nullptr, gDiagnosisLabel = nullptr;
 std::array<HWND, 3> gProcessLabels{};
 unsigned gPerformanceTicks = 0;
@@ -54,7 +56,7 @@ std::wstring gConfig, gLog, gPolicyFile;
 HWND gRamLabel = nullptr;
 HWND gCommitLabel = nullptr;
 HWND gStatusLabel = nullptr;
-HFONT gFont = nullptr;
+
 
 struct MemorySnapshot {
     ULONGLONG total = 0;
@@ -169,10 +171,12 @@ void refreshDisplay() {
     const MemorySnapshot& memory = gLastSnapshot;
 
     if (!memory.valid) {
-        SetWindowTextW(gRamLabel, L"Nao foi possivel consultar a memoria.");
+        SetWindowTextW(gRamLabel, L"Não foi possível consultar a memória.");
         SetWindowTextW(gCommitLabel, L"");
+        apolo::updateDashboardGauge(gUi.ramProgress, 0);
         return;
     }
+    apolo::updateDashboardGauge(gUi.ramProgress, memory.loadPercent);
 
     wchar_t buffer[256] = {};
     std::swprintf(
@@ -214,6 +218,10 @@ void refreshPerformanceDisplay(bool updateProcessList) {
                       L"CPU (sistema): aguardando amostra...");
     }
     SetWindowTextW(gCpuLabel, buffer);
+    apolo::updateDashboardGauge(
+        gUi.cpuProgress,
+        performance.cpuValid ? static_cast<unsigned>(std::clamp(
+            performance.cpuPercent, 0.0, 100.0)) : 0U);
 
     if (performance.diskValid) {
         constexpr double toMiB = 1024.0 * 1024.0;
@@ -494,13 +502,6 @@ void trayMenu(HWND h) {
                    p.x,p.y,0,h,nullptr);
     PostMessageW(h,WM_NULL,0,0);DestroyMenu(menu);
 }
-void combo(HWND h,const int* items,size_t n,int selected,const wchar_t* suffix) {
-    for(size_t i=0;i<n;++i) {
-        std::wstring t=std::to_wstring(items[i])+suffix;
-        SendMessageW(h,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(t.c_str()));
-        if(items[i]==selected)SendMessageW(h,CB_SETCURSEL,i,0);
-    }
-}
 void saveUi(HWND window) {
     if(gLocked)return;
     bool enabled=SendMessageW(gAutomatic,BM_GETCHECK,0,0)==BST_CHECKED;
@@ -526,118 +527,64 @@ void saveUi(HWND window) {
     SetWindowTextW(gStatusLabel,L"Configurações salvas. Intervalo de segurança reiniciado.");
 }
 
-void applyFont(HWND control) {
-    if (control && gFont) {
-        SendMessageW(control, WM_SETFONT,
-                     reinterpret_cast<WPARAM>(gFont), TRUE);
-    }
-}
-
-HWND addControl(HWND parent, const wchar_t* klass,
-                const wchar_t* caption, DWORD style,
-                int x, int y, int width, int height, int id = 0) {
-    HWND control = CreateWindowExW(
-        0, klass, caption, style | WS_CHILD | WS_VISIBLE,
-        x, y, width, height, parent,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-        GetModuleHandleW(nullptr), nullptr);
-    applyFont(control);
-    return control;
-}
-
 LRESULT CALLBACK mainWindowProc(HWND window, UINT message,
                                 WPARAM wParam, LPARAM lParam) {
     if(gTaskbarCreated && message==gTaskbarCreated) {iconAdd(window);return 0;}
     switch (message) {
     case WM_CREATE: {
-        gFont = CreateFontW(-19, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                            CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-        gTitleFont = CreateFontW(-30, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                 CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-
-        HWND title = addControl(window, L"STATIC", L"APOLO | Desempenho",
-                                SS_LEFT, 25, 16, 735, 48);
-        if (gTitleFont) SendMessageW(title, WM_SETFONT,
-                                     reinterpret_cast<WPARAM>(gTitleFont), TRUE);
-        addControl(window, L"STATIC", L"Monitor de recursos | v0.4.0 (piloto)",
-                   SS_LEFT, 27, 68, 735, 28);
-
-        gRamLabel = addControl(window, L"STATIC", L"Consultando memória...",
-                               SS_LEFT, 28, 119, 748, 30);
-        gCommitLabel = addControl(window, L"STATIC", L"", SS_LEFT, 28, 150, 748, 30);
-        gCpuLabel = addControl(window, L"STATIC", L"CPU: aguardando amostra...",
-                               SS_LEFT, 28, 188, 748, 30);
-        gDiskLabel = addControl(window, L"STATIC", L"Disco: aguardando amostra...",
-                                SS_LEFT, 28, 222, 748, 30);
-        gDiagnosisLabel = addControl(window, L"STATIC", L"",
-                                     SS_LEFT, 28, 257, 748, 46);
-
-        addControl(window, L"BUTTON", L"Atualizar", BS_PUSHBUTTON,
-                   28, 306, 145, 39, kRefreshButton);
-        addControl(window, L"BUTTON", L"Limpar memória (manual)", BS_PUSHBUTTON,
-                   188, 306, 260, 39, kCleanButton);
-        addControl(window, L"BUTTON", L"Ver histórico", BS_PUSHBUTTON,
-                   460, 306, 162, 39, kHistoryButton);
-        addControl(window, L"BUTTON", L"Análise v0.4", BS_PUSHBUTTON,
-                   636, 306, 140, 39, kAnalysisButton);
-
-        addControl(window, L"STATIC", L"PROCESSOS COM MAIOR WORKING SET (SUA CONTA)",
-                   SS_LEFT, 28, 373, 747, 27);
-        for (std::size_t i = 0; i < gProcessLabels.size(); ++i) {
-            gProcessLabels[i] = addControl(
-                window, L"STATIC", i == 0 ? L"Consultando processos..." : L"",
-                SS_LEFT, 28, 404 + static_cast<int>(i) * 29, 746, 28);
+        const apolo::DashboardCommands ids = {
+            kRefreshButton, kCleanButton, kHistoryButton, kAnalysisButton,
+            kAuto, kStartHidden, kThreshold, kInterval, kSave
+        };
+        if (!apolo::createDashboardUi(window, gUi, ids,
+                                      gLocked, gOptions.automatic,
+                                      gOptions.startHidden, gOptions.threshold,
+                                      gOptions.cooldown)) {
+            MessageBoxW(window, L"Falha ao criar a interface do Apolo.",
+                        L"Apolo", MB_OK | MB_ICONERROR);
+            return -1;
         }
+        gRamLabel = gUi.ramLabel;
+        gCommitLabel = gUi.commitLabel;
+        gCpuLabel = gUi.cpuLabel;
+        gDiskLabel = gUi.diskLabel;
+        gDiagnosisLabel = gUi.diagnosisLabel;
+        gProcessLabels = gUi.processLabels;
+        gStatusLabel = gUi.status;
 
-        addControl(window, L"STATIC", L"CONFIGURAÇÕES",
-                   SS_LEFT, 28, 505, 430, 29);
-        gAutomatic = addControl(window, L"BUTTON", L"Ativar limpeza automática",
-                                BS_AUTOCHECKBOX | WS_TABSTOP,
-                                28, 536, 350, 30, kAuto);
-        gStartHidden = addControl(window, L"BUTTON", L"Iniciar na bandeja",
-                                  BS_AUTOCHECKBOX | WS_TABSTOP,
-                                  427, 536, 285, 30, kStartHidden);
-        addControl(window, L"STATIC", L"Limiar de RAM", SS_LEFT, 28, 590, 143, 28);
-        gThreshold = addControl(window, L"COMBOBOX", L"",
-                                CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
-                                175, 577, 103, 192, kThreshold);
-        addControl(window, L"STATIC", L"Intervalo mínimo", SS_LEFT,
-                   297, 590, 172, 28);
-        gInterval = addControl(window, L"COMBOBOX", L"",
-                               CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
-                               474, 577, 103, 192, kInterval);
-        addControl(window, L"STATIC", L"min", SS_LEFT, 584, 590, 39, 28);
-        gSaveButton = addControl(window, L"BUTTON", L"Salvar", BS_PUSHBUTTON,
-                                 646, 576, 100, 40, kSave);
-        addControl(window, L"STATIC",
-                   gLocked ? L"Política corporativa ativa: opções bloqueadas pela TI."
-                           : L"Automação desativada por padrão para proteger o desempenho.",
-                   SS_LEFT, 28, 628, 735, 29);
-        gStatusLabel = addControl(window, L"STATIC", L"Pronto.",
-                                  SS_LEFT, 28, 675, 738, 64);
-
-        combo(gThreshold, kLimits.data(), kLimits.size(), gOptions.threshold, L"%");
-        combo(gInterval, kIntervals.data(), kIntervals.size(), gOptions.cooldown, L"");
-        SendMessageW(gAutomatic, BM_SETCHECK,
-                     gOptions.automatic ? BST_CHECKED : BST_UNCHECKED, 0);
-        SendMessageW(gStartHidden, BM_SETCHECK,
-                     gOptions.startHidden ? BST_CHECKED : BST_UNCHECKED, 0);
-
-        if (gLocked) {
-            EnableWindow(gAutomatic, FALSE);
-            EnableWindow(gStartHidden, FALSE);
-            EnableWindow(gThreshold, FALSE);
-            EnableWindow(gInterval, FALSE);
-            EnableWindow(gSaveButton, FALSE);
-        }
+        gAutomatic = gUi.autoToggle;
+        gStartHidden = gUi.hiddenToggle;
+        gThreshold = gUi.thresholdCombo;
+        gInterval = gUi.intervalCombo;
+        gSaveButton = gUi.saveButton;
 
         apolo::initializePerformance();
         iconAdd(window);
         gLastAttempt = GetTickCount64();
         SetTimer(window, kRefreshTimer, kRefreshIntervalMs, nullptr);
         refreshDisplay();
+        return 0;
+    }
+
+    case WM_GETMINMAXINFO: {
+        auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
+        info->ptMinTrackSize.x = 850;
+        info->ptMinTrackSize.y = 715;
+        return 0;
+    }
+
+    case WM_SIZE:
+        if (wParam != SIZE_MINIMIZED)
+            apolo::layoutDashboardUi(window, gUi);
+        return 0;
+
+    case WM_NOTIFY: {
+        const auto* notification = reinterpret_cast<const NMHDR*>(lParam);
+        if (notification && notification->idFrom == apolo::kTabControlId &&
+            notification->code == TCN_SELCHANGE) {
+            const int selection = TabCtrl_GetCurSel(gUi.tabs);
+            apolo::setDashboardTab(gUi, selection);
+        }
         return 0;
     }
 
@@ -684,11 +631,7 @@ LRESULT CALLBACK mainWindowProc(HWND window, UINT message,
         apolo::closeAnalysisWindow();
         apolo::shutdownPerformance();
         iconRemove(window);
-        if(gTitleFont)DeleteObject(gTitleFont);
-        if (gFont) {
-            DeleteObject(gFont);
-            gFont = nullptr;
-        }
+        apolo::destroyDashboardUi(gUi);
         PostQuitMessage(0);
         return 0;
     }
@@ -719,8 +662,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
     HWND window = CreateWindowExW(
         0, kWindowClass, L"Apolo - Gerenciamento de memoria",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 810, 798,
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 940, 765,
         nullptr, nullptr, instance, nullptr);
 
     if (!window) {
