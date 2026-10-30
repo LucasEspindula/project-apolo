@@ -1,12 +1,24 @@
 cmake_minimum_required(VERSION 3.21)
-project(Apolo VERSION 0.5.0 LANGUAGES CXX)
+project(Apolo VERSION 0.6.0 LANGUAGES CXX)
+
 if(NOT WIN32)
     message(FATAL_ERROR "Apolo requer Windows 11.")
 endif()
-add_executable(Apolo WIN32 src/main.cpp src/performance.cpp src/analysis.cpp src/dashboard_ui.cpp)
+
+add_executable(Apolo WIN32
+    src/main.cpp
+    src/performance.cpp
+    src/analysis.cpp
+    src/modern_ui.cpp
+)
 target_compile_features(Apolo PRIVATE cxx_std_20)
-target_compile_definitions(Apolo PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX PSAPI_VERSION=1)
-target_link_libraries(Apolo PRIVATE Psapi Advapi32 User32 Gdi32 Shell32 Ole32 Pdh Comctl32)
+target_compile_definitions(Apolo PRIVATE
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX PSAPI_VERSION=1
+)
+target_link_libraries(Apolo PRIVATE
+    Psapi Advapi32 User32 Gdi32 Shell32 Ole32 Pdh
+    D2d1 Dwrite Dwmapi
+)
 if(MSVC)
     target_compile_options(Apolo PRIVATE /W4 /permissive- /EHsc /utf-8)
     target_link_options(Apolo PRIVATE /DYNAMICBASE /NXCOMPAT)

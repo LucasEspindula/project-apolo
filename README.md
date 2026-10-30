@@ -1,62 +1,60 @@
 # Projeto Apolo
 
-**Versão atual: 0.5.0 (piloto) | Windows 11 x64 | C++20/Win32**
+**Versão atual: v0.6.0 (piloto) • Windows 11 x64 • C++20 nativo**
 
-O **Apolo** é um monitor e gerenciador conservador de memória desenvolvido de forma independente. Não incorpora código do Mem Reduct nem utiliza telemetria, rede, atualização remota, contorno de UAC ou APIs de limpeza de cache do kernel não documentadas.
+O **Apolo** monitora CPU, RAM, E/S de disco e processos da conta atual, com uma rotina opcional de redução do *working set* de processos acessíveis. É uma implementação independente: não utiliza código do Mem Reduct. Não possui serviços de rede, telemetria, navegador embutido, atualizador, serviço do Windows ou elevação silenciosa.
 
-## Funcionalidades
+> **Aviso importante:** reduzir o *working set* pode aumentar a RAM física disponível, mas não garante computador mais rápido; pode causar recarga de páginas e lentidão. A limpeza automática é **desativada por padrão**. Ainda não houve validação funcional nem medição do consumo da v0.6 em Windows 11.
 
-| Recurso | Estado |
-| --- | --- |
-| RAM usada, total, disponível e memória comprometida | Funcional na v0.1 |
-| Atualização automática da leitura a cada 2,5 segundos | Funcional na v0.1 |
-| Limpeza manual com confirmação | Funcional na v0.1 |
-| Ícone na bandeja do Windows com menu | Novo na v0.2 |
-| Preferências persistentes | Novo na v0.2 |
-| Limpeza automática configurável | Novo na v0.2; desligada por padrão |
-| Histórico CSV de cada operação | Novo na v0.2 |
-| Modelo de política de TI (INI) | Novo na v0.2; apenas piloto |
-| Compilação Windows x64 | Manual no Visual Studio do desenvolvedor |
-| CPU total (amostragem de tempo ocioso) | Novo na v0.3 |
-| Taxas de leitura e gravação em disco (MiB/s) | Novo na v0.3 |
-| Três processos da conta atual com maior working set | Novo na v0.3 |
-| Sinais simples de atenção (CPU alta/RAM disponível baixa) | Novo na v0.3, **não é diagnóstico completo** |
-| Gráficos locais de CPU, RAM e E/S de disco (últimos 1/5/15 min) | Novo na v0.4 |
-| Diagnóstico por sinais persistentes nas últimas leituras | Novo na v0.4 |
-| Lista ampliada de processos: até 24, com ordenação | Novo na v0.4 |
-| Indicador combinado de RAM disponível + commit | Novo na v0.4; **não mede paginação** |
-| Janela principal reorganizada com abas Visão geral/Configurações | Novo na v0.5 |
-| Barras visuais de utilização de RAM e CPU | Novo na v0.5 |
-| Janela principal redimensionável (com tamanho mínimo) | Novo na v0.5 |
-| Diagnóstico avançado e painel central | Planejado |
+## v0.6 — Redesign nativo, elegante e leve
 
-## Obter e atualizar o projeto
+A interface foi reconstruída em **Win32 + Direct2D + DirectWrite**, sem Electron, WebView, Qt ou runtime pesado de interface. O objetivo é visual moderno com uso controlado de recursos; o consumo real só será conhecido após medições na máquina Windows.
 
-Primeira vez:
+- **Menu lateral** com Visão geral, Desempenho, Processos, Histórico e Configurações.
+- **Identidade visual escura**: grafite/carvão, cards discretos, azul e ciano, tipografia Segoe UI, sem animações permanentes.
+- **Visão geral:** cards RAM/CPU/Disco, gráfico compacto com CPU/RAM, diagnóstico e principais processos; ação explícita **Limpar memória**.
+- **Desempenho:** gráficos integrados de CPU, RAM e taxa total do disco (MiB/s), com períodos 1, 5 e 15 minutos.
+- **Processos:** até 24 processos acessíveis da **mesma conta e sessão**, com PID e *working set*, ordenação por memória, nome ou PID e rolagem. Não oferece encerramento de processos.
+- **Histórico:** consulta interna das últimas operações registradas no arquivo CSV; opção **Abrir CSV** preservada.
+- **Configurações:** limpeza automática, abertura na bandeja, limite de uso da RAM, intervalo mínimo e botão para salvar. Política corporativa local bloqueia alterações quando presente.
+- **Bandeja do Windows:** fechar a janela oculta o programa, se o ícone estiver disponível; para encerrar use **Sair do Apolo** no menu de contexto do ícone.
+
+### Decisões de baixo consumo
+
+1. Interface desenhada via Direct2D/DirectWrite; objetos de desenho e fontes são reaproveitados.
+2. Redesenho sob demanda e, enquanto a janela está aberta, após a coleta de métricas, sem animações a 60 FPS.
+3. Amostras coletadas a cada ~2,5 segundos. Inventário de processos da conta reavaliado aproximadamente a cada 5 segundos.
+4. Gráficos limitados a **360 amostras voláteis (~15 minutos)**; não gravam CPU/RAM/disco em disco.
+5. A janela antiga de análise e os controles visuais antigos saíram da compilação; os dados passam a ser compartilhados com a interface principal.
+6. Não é criado nenhum processo auxiliar para desenhar a interface.
+
+**Limitação conhecida:** enquanto o aplicativo está em execução, a coleta continua mesmo com a janela oculta na bandeja. A v0.6 não usa temporização diferenciada para o modo oculto. Teclado e navegação assistiva na interface desenhada serão aprimorados antes de uma versão estável.
+
+## Como atualizar e compilar
+
+O GitHub é **somente o repositório de código**. Não temos compilação automática no GitHub Actions. Você atualiza e compila **localmente no Visual Studio**.
+
+Primeiro clone:
 
 ~~~powershell
 git clone https://github.com/LucasEspindula/project-apolo.git
 cd project-apolo
 ~~~
 
-Atualizações seguintes, dentro da pasta clonada:
+Para atualizar uma pasta clonada:
 
 ~~~powershell
 git pull origin main
 ~~~
 
-Se o projeto anterior estiver em uma pasta extraída de ZIP, faça o clone em uma pasta nova para usar o Git.
+**Antes de compilar**, encerre o Apolo pelo ícone da bandeja: botão direito → **Sair do Apolo**. Se o processo estiver aberto, o vinculador do Visual Studio pode gerar LNK1104 ao tentar substituir o Apolo.exe.
 
-## Compilar no Windows 11
+1. Abra a pasta project-apolo no Visual Studio.
+2. Selecione **x64-Release**.
+3. Pressione **Ctrl + Shift + B** (Compilação → Compilar Tudo).
+4. Inicie Apolo.exe pelo Visual Studio ou em out\build\x64-Release\Apolo.exe.
 
-Requer Visual Studio com a carga **Desenvolvimento para desktop com C++**, Windows SDK e CMake.
-
-- Abra a pasta do repositório no Visual Studio.
-- Selecione x64-Release; o CMakeSettings.json já inclui x64-Debug e x64-Release.
-- Clique em **Compilação > Compilar Tudo**.
-- Normalmente o executável estará em out\build\x64-Release\Apolo.exe.
-
-Alternativamente, abra o Developer PowerShell do Visual Studio na pasta do projeto:
+Alternativa no **Developer PowerShell for Visual Studio**:
 
 ~~~powershell
 cmake -S . -B build -A x64
@@ -64,129 +62,84 @@ cmake --build build --config Release
 .\build\Release\Apolo.exe
 ~~~
 
-**Feche a versão antiga do Apolo antes de abrir a v0.5.** O programa permanece na bandeja após fechar a janela; escolha **Sair do Apolo** antes de recompilar. Se o compilador mostrar `LNK1104: não é possível abrir Apolo.exe`, confirme no Gerenciador de Tarefas que nenhum Apolo.exe continua em execução. O Windows pode manter a v0.1 aberta enquanto você inicia outra compilação.
+Requisitos: Windows 11 x64, Windows SDK, Visual Studio com **Desenvolvimento para desktop com C++**, CMake, MSVC.
 
-**Fluxo adotado:** o GitHub armazena somente código, histórico e documentação. Não executamos build automática no GitHub Actions; o desenvolvedor faz `git pull`, compila localmente no Visual Studio e valida a execução.
+## Recursos de monitoramento e seus limites
 
-## Interface v0.5: abas e barras visuais
+| Métrica | Fonte | Observação |
+| --- | --- | --- |
+| RAM total/usada/disponível | GlobalMemoryStatusEx | Porcentagem global aproximada |
+| Memória comprometida | GetPerformanceInfo | Não é equivalente à RAM física |
+| CPU | GetSystemTimes | Variação entre amostras; a primeira pode ficar indisponível |
+| Disco | PDH, PhysicalDisk(_Total) | Leitura/gravação em MiB/s; não mede latência nem saturação |
+| Processos | Toolhelp + GetProcessMemoryInfo | Apenas processos acessíveis da conta e sessão atuais |
+| Diagnóstico | Regras locais sobre amostras recentes | Indicadores preliminares, **não** diagnóstico definitivo |
 
-A janela principal foi reorganizada com componentes Win32 nativos, sem bibliotecas de UI de terceiros e sem serviços de rede:
+O diagnóstico procura sinais repetidos (pelo menos oito amostras válidas e condição presente em 75% delas no último minuto), por exemplo CPU muito alta ou RAM disponível baixa junto de commit alto. **Não** aciona automaticamente o limpador.
 
-- **Visão geral:** RAM, CPU e disco, barras de 0 a 100% de RAM/CPU, memória comprometida, avisos baseados no histórico e três processos com maior *working set* da conta atual. Botões: **Atualizar**, **Limpar memória...**, **Gráficos e análise** e **Histórico**.
-- **Configurações:** limpeza automática opcional, abertura na bandeja, limiar de RAM, intervalo mínimo e botão de salvar. A política corporativa continua bloqueando os controles quando aplicável.
-- **Redimensionamento:** a janela aceita redimensionamento e possui tamanho mínimo para evitar sobreposição de controles. As duas abas utilizam os mesmos dados e a mesma rotina de limpeza já existentes.
-- **Histórico gráfico:** continua acessível por **Gráficos e análise**, abrindo a janela desenvolvida na v0.4. O botão **Histórico** continua abrindo o CSV de limpezas.
+## Limpeza de memória
 
-As barras não representam ganho de desempenho: mostram apenas a porcentagem observada nas leituras. CPU sem amostra válida permanece indicada como *coletando*, não é tratada como 0% confiável.
+A ação manual solicita confirmação. A operação usa a API documentada **EmptyWorkingSet**, restringe a tentativa a processos acessíveis da mesma conta e sessão, exclui o próprio Apolo e processos centrais do Windows, sem elevação ou APIs não documentadas de limpeza de cache do kernel.
 
-### Teste rápido no Visual Studio
+A automação já existente só funciona **se for ativada e salva** pelo usuário ou configurada explicitamente por uma política válida da TI. Limiares: **70, 75, 80, 85, 90 ou 95%** de RAM; intervalo: **15, 30, 60, 120 ou 240 minutos**. Ela é experimental: recomendamos manter desligada até medir impacto real no desempenho. O diagnóstico visual não controla essa automação.
 
-1. Encerre o Apolo anterior usando **Sair do Apolo** no ícone da bandeja.
-2. Faça \`git pull origin main\`, selecione \`x64-Release\` e pressione **Ctrl + Shift + B**.
-3. Execute e alterne entre **Visão geral** e **Configurações**; confirme que as opções continuam salvas ao reiniciar.
-4. Redimensione a janela sem diminuir abaixo do tamanho mínimo; confira barras, botões e textos.
-5. Abra **Gráficos e análise** e confirme que as funções da v0.4 continuam intactas.
+Reduzir o working set pode gerar mais paginação e piorar a experiência. A variação registrada de RAM disponível não é medida de velocidade.
 
-## Painel de análise da v0.4
-
-O botão **Análise v0.4** abre uma segunda janela, sem alterar o funcionamento da limpeza ou das configurações. Nela você pode:
-
-- Visualizar **gráficos de CPU, RAM utilizada e transferência total do disco**; selecionar últimos **1, 5 ou 15 minutos**.
-- Consultar **até 24 processos** da **mesma conta e sessão**, com nome, PID e *working set*; ordenar por maior memória, nome ou PID. Trata-se dos 24 maiores *working sets* acessíveis, **não** de todos os processos do Windows.
-- Ler um **diagnóstico preliminar** baseado em **pelo menos 8 amostras válidas** (~20 segundos) e persistência de sinal em **pelo menos 75%** das amostras nos últimos 60 segundos.
-- Receber alertas de CPU muito elevada (90% ou mais, no intervalo de amostragem) e de baixa RAM disponível (< 10%) combinada com memória comprometida elevada (90% ou mais do limite).
-
-O histórico de gráficos é **volátil e limitado a 360 amostras** (~15 minutos a 2,5 s), ocupando memória enquanto o Apolo roda. **Não grava os dados em disco nem envia telemetria**. Amostras inválidas não viram números inventados. Leituras de processos acontecem aproximadamente a cada cinco segundos; o monitor de recursos mantém as restrições de conta/sessão da v0.3. As opções da janela não alteram processos.
-
-**Cuidado na interpretação:** memória comprometida elevada + pouca RAM disponível é apenas **sinal de possível pressão**, não uma medida direta da paginação. As taxas de transferência do disco não medem latência nem confirmam gargalo de armazenamento. Diagnósticos não acionam limpeza automática; a regra de automação já existente continua independente.
-
-## Painel de desempenho da v0.3
-
-**CPU:** percentual de utilização total calculado pela diferença entre duas amostras de GetSystemTimes; a primeira amostra pode exibir "aguardando". Trata-se da utilização global aproximada no intervalo, não de frequência, temperatura ou gargalo confirmado.
-
-**Disco:** taxas agregadas de leitura e gravação em **MiB/s**, coletadas com contadores documentados do Windows pela API PDH. Contadores com nomes em inglês são utilizados independentemente do idioma do Windows. São necessárias pelo menos duas amostras com intervalo. Se os contadores estiverem desabilitados ou indisponíveis, o Apolo mostra "indisponível" — **não inventa valores**. As taxas não representam o percentual de ocupação nem indicam, por si, lentidão do disco.
-
-**Processos:** mostra até três processos acessíveis **da mesma conta e sessão**, ordenados por *working set* (memória física residente no processo), consultados aproximadamente a cada cinco segundos. Processos protegidos ou inacessíveis não são exibidos; assim, a lista não equivale ao ranking de todo o Windows nem à memória privada/comprometida. Os nomes consultados **não** são gravados no histórico ou enviados para a rede.
-
-**Sinais de atenção:** na v0.4, o texto de diagnóstico passa a considerar amostras repetidas em vez de uma única leitura isolada. Não há promessa de ganho de desempenho nem ação automática derivada desses avisos.
-
-Estas leituras são **somente leitura** e não alteram a rotina de limpeza nem habilitam a automação.
-
-Referências de APIs documentadas: [GetSystemTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getsystemtimes), [Coleta de dados PDH](https://learn.microsoft.com/en-us/windows/win32/perfctrs/collecting-performance-data), [GetProcessMemoryInfo](https://learn.microsoft.com/en-us/windows/win32/api/psapi/nf-psapi-getprocessmemoryinfo).
-
-## Interface, opções e histórico
-
-- **Fechar a janela** deixa o Apolo na bandeja, quando o ícone estiver ativo. Para encerrar, clique com o botão direito no ícone e escolha **Sair do Apolo**.
-- **Iniciar na bandeja** apenas abre a interface oculta. Não configura inicialização automática do Windows.
-- **Limpeza automática** é desligada por padrão. Para ligá-la, é preciso marcar a opção, clicar **Salvar** e aceitar a advertência. Só atua se o uso percentual de RAM atingir o limiar e houver transcorrido o intervalo mínimo desde a última tentativa ou mudança de configuração.
-- Limiares: 70, 75, 80, 85, 90 e 95%. Intervalos: 15, 30, 60, 120 e 240 minutos.
-- O histórico registra data/hora, origem manual/automática, processos tratados e variação observada de memória disponível. **Não** registra nomes de processos/usuários e não tem remoção automática.
-
-Arquivos:
+## Arquivos locais e política corporativa
 
 | Arquivo | Local |
 | --- | --- |
-| Preferências locais | %LOCALAPPDATA%\Apolo\settings.ini |
-| Histórico CSV | %LOCALAPPDATA%\Apolo\history.csv |
-| Política corporativa opcional | C:\ProgramData\Apolo\policy.ini |
+| Preferências do usuário | %LOCALAPPDATA%\Apolo\settings.ini |
+| Histórico das limpezas | %LOCALAPPDATA%\Apolo\history.csv |
+| Política da TI, quando utilizada | C:\ProgramData\Apolo\policy.ini |
 
-## Instalação corporativa piloto
+A v0.6 mostra as últimas entradas do CSV na tela **Histórico**, sem criar um banco de dados nem armazenar nome dos processos. Não há limite automático de retenção do arquivo original. **Histórico gráfico e histórico de limpezas são coisas distintas**.
 
-Em deployment/policy.ini está um **modelo**, com automação desligada. Se instalado em ProgramData\Apolo\policy.ini, os valores prevalecem sobre as preferências locais e os controles são bloqueados. Reinicie o Apolo após modificar a política.
+O modelo de política está em deployment/policy.ini, com limpeza automática desativada. A política, se presente, sobrepõe as opções locais. **As permissões NTFS da pasta/arquivo devem ser protegidas**: usuários somente leitura; administradores escrita. O script deployment/Install-Apolo.ps1 serve apenas para instalação piloto e **não** define ACLs, serviço, tarefa ou inicialização automática.
 
-**Atenção:** proteja a pasta e o arquivo com ACLs NTFS adequadas (usuários: leitura; administradores: escrita). O código e o script não definem essas permissões. A configuração não deve ser considerada uma barreira de segurança sem revisar as ACLs.
+## Estrutura do projeto
 
-Para copiar os arquivos em uma máquina piloto, compile Release, encerre o Apolo e execute em PowerShell elevado:
-
-~~~powershell
-.\deployment\Install-Apolo.ps1 -ExecutablePath "C:\CAMINHO\project-apolo\out\build\x64-Release\Apolo.exe"
+~~~text
+project-apolo/
+├── src/
+│   ├── main.cpp          # Win32, limpeza e integração
+│   ├── modern_ui.h/.cpp   # Direct2D/DirectWrite e navegação
+│   ├── performance.h/.cpp # CPU, disco e processos
+│   └── analysis.h/.cpp    # histórico volátil e sinais de atenção
+├── deployment/
+│   ├── policy.ini
+│   └── Install-Apolo.ps1
+├── CMakeLists.txt
+├── CMakeSettings.json
+└── README.md
 ~~~
 
-O script copia o executável para Program Files\Apolo e o modelo de política para ProgramData\Apolo. Ele não instala serviço, não cria tarefas ou inicialização automática. Preserva a política existente, a menos que você utilize -ReplacePolicy.
+## Checklist de validação da v0.6 — faça no Windows 11
 
-## Limites e segurança
+- [ ] Compilar **Release x64** localmente; conferir que Apolo.exe abre sem erro.
+- [ ] Verificar aspecto escuro, menu lateral, cards, alinhamento e redimensionamento (incluindo DPI/escala do Windows).
+- [ ] Conferir leituras de RAM/CPU/disco e valores dos gráficos após alguns ciclos.
+- [ ] Alternar 1/5/15 minutos e comparar a direção dos gráficos com o Gerenciador de Tarefas.
+- [ ] Consultar Processos: ordenar por RAM/nome/PID e rolar.
+- [ ] Abrir Histórico e comparar linhas com %LOCALAPPDATA%\Apolo\history.csv.
+- [ ] Testar as opções (sem ativar automação no piloto), salvar e reiniciar o programa.
+- [ ] Executar uma limpeza manual com confirmação e conferir o histórico.
+- [ ] Fechar na bandeja, reabrir e encerrar pelo menu Sair.
+- [ ] **Medir o consumo do próprio Apolo** (RAM privada/working set, CPU ao longo de minutos, responsividade e velocidade de inicialização), comparando com a v0.5. O produto não deve piorar a experiência do usuário.
 
-- A limpeza usa a API documentada EmptyWorkingSet em processos acessíveis da mesma conta e sessão, excluindo processos principais do Windows e o Apolo.
-- Reduzir o working set **não garante aceleração** e pode aumentar paginação, acessos ao disco e travamentos temporários. RAM liberada não significa memória comprometida reduzida.
-- A automação baseada apenas na porcentagem de RAM é experimental; recomendamos mantê-la desligada até realizar testes de desempenho e responsividade.
-- A limpeza ocorre na thread de interface; a janela pode ficar momentaneamente sem responder.
-- As operações não usam privilégio administrativo de forma silenciosa.
-- Para uso em 11–30 computadores, ainda são necessários testes, revisão de segurança, ACLs, antivírus, assinatura digital e política de distribuição.
+**Não distribuir nas 11–30 máquinas antes dos testes**, revisão de segurança, verificação de permissões, antivírus, assinatura e plano de recuperação.
 
-## Checklist de validação v0.5 no Windows
+## Histórico de versões
 
-1. Compilar Release x64, iniciar o programa e comparar as métricas de RAM com o Gerenciador de Tarefas.
-1a. Aguardar pelo menos duas atualizações (aproximadamente 5 s) e comparar CPU com o Gerenciador de Tarefas, permitindo pequenas diferenças de amostragem.
-1b. Testar leitura/gravação de arquivos e observar se a E/S do disco varia; quando PDH estiver indisponível, registrar isso sem tratar como falha fatal.
-1c. Conferir se os processos exibidos são da conta atual e se os valores de working set são coerentes. A lista pode omitir processos protegidos.
-2. Abrir **Análise v0.4** e verificar gráficos após pelo menos 20 segundos; alternar 1/5/15 minutos e observar que o histórico reinicia ao fechar o processo.
-2a. Verificar a lista de até 24 processos da conta; alternar ordenação por memória, nome e PID. Confirme que nenhuma ação de encerramento foi adicionada.
-2b. Verificar que alertas só aparecem após amostras suficientes e não ativam limpeza.
-3. Testar Atualizar e Limpar memória; confirmar que surge uma linha no CSV ao clicar em Ver histórico.
-4. Fechar a janela, recuperar o Apolo pela bandeja e terminar pelo menu Sair.
-5. Modificar configurações, clicar Salvar e conferir persistência após reiniciar.
-6. Confirmar que a limpeza automática permanece desligada por padrão; só testar em máquina piloto autorizada.
-7. Testar política com ACLs verificadas, confirmando que ela prevalece e bloqueia a edição.
-8. Conferir a saída de compilação do Visual Studio e registrar os erros encontrados para correção no próximo commit.
+- **v0.1:** monitoramento de RAM e limpeza manual, testada em Windows 11.
+- **v0.2:** bandeja, INI, automação opcional, CSV e política corporativa piloto.
+- **v0.3:** CPU, atividade de disco e lista de processos.
+- **v0.4:** gráficos locais, diagnóstico por histórico e lista ampliada.
+- **v0.5:** abas e barras visuais.
+- **v0.6 (piloto):** redesign nativo dark, navegação lateral, cards e gráficos integrados, lista e histórico na mesma interface, removendo o código de UI anterior.
 
-## Histórico
+## Próximas etapas
 
-- **v0.1.0:** monitoramento e limpeza manual. Compilada e testada pelo proprietário no Windows 11.
-- **v0.2.0 (piloto):** bandeja, configurações, histórico, automação opcional, política de TI. Compilação realizada manualmente no Visual Studio.
-- **v0.3.0 (piloto):** CPU, E/S do disco, principais processos e sinais simples de atenção.
-- **Correção v0.4 (Visual Studio):** ajustados os tipos dos limites da janela (`RECT`) usados por `std::max`, resolvendo os erros C2672/C2737 reportados nas linhas 95–96 de `analysis.cpp`.
-- **v0.4.0 (piloto):** gráficos locais 1/5/15 min, alertas persistentes e lista ampliada de processos. Corrigidos erros de tipos em `std::max` no layout.
-- **v0.5.0 (piloto):** janela com abas, barras de RAM/CPU, controles agrupados, redimensionamento e README atualizado. **Aguardando sua compilação e teste local no Windows.**
+Validar a v0.6, corrigir problemas visuais e medir consumo; melhorar acessibilidade, DPI e coleta ao ficar na bandeja antes de adicionar novas rotinas de desempenho ou distribuir corporativamente.
 
-## Roadmap
-
-1. Testar e estabilizar a v0.5 no Windows 11, incluindo alternância de abas, redimensionamento, salvamento e consumo do próprio Apolo.
-2. Melhorar responsividade e UI, incluindo métricas reais de paginação e latência de disco.
-3. Construir diagnósticos com base em histórico e métricas mensuráveis.
-4. Planejar instalação assinada e distribuição corporativa, depois painel central.
-
-## Fluxo de desenvolvimento
-
-A cada atualização, código e `README.md` seguem juntos em commit no GitHub. Na máquina Windows do desenvolvedor, atualizar com `git pull origin main` e compilar com o Visual Studio (`x64-Release`). **Não usamos GitHub Actions para compilar automaticamente.**
-
-A licença formal para distribuição pública ainda será definida.
+A licença para distribuição pública ainda precisa ser definida.
