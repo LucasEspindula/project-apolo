@@ -1,4 +1,4 @@
-// Apolo 0.5.0 - monitoramento de desempenho e limpeza conservadora para Windows 11.
+// Apolo 0.6.0 - monitoramento de desempenho e limpeza conservadora para Windows 11.
 // Implementacao independente, utilizando APIs documentadas do Windows.
 
 #include <windows.h>
@@ -9,8 +9,9 @@
 
 #include "performance.h"
 #include "analysis.h"
-#include "dashboard_ui.h"
-#include <commctrl.h>
+#include "modern_ui.h"
+#include <dwmapi.h>
+#include <windowsx.h>
 
 #include <algorithm>
 #include <array>
@@ -30,8 +31,6 @@ constexpr int kCleanButton = 102;
 constexpr UINT kRefreshIntervalMs = 2500;
 constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kTrayId = 1;
-constexpr int kHistoryButton = 103, kAuto = 104, kThreshold = 105, kInterval = 106;
-constexpr int kStartHidden = 107, kSave = 108, kAnalysisButton = 109;
 constexpr int kOpenMenu = 301, kCleanMenu = 302, kHistoryMenu = 303, kExitMenu = 304;
 constexpr std::array<int, 6> kLimits = {70, 75, 80, 85, 90, 95};
 constexpr std::array<int, 5> kIntervals = {15, 30, 60, 120, 240};
@@ -42,20 +41,14 @@ struct Options {
     bool startHidden = false;
 };
 Options gOptions;
-HWND gAutomatic = nullptr, gThreshold = nullptr, gInterval = nullptr;
-HWND gStartHidden = nullptr, gSaveButton = nullptr;
-apolo::DashboardUi gUi;
-HWND gCpuLabel = nullptr, gDiskLabel = nullptr, gDiagnosisLabel = nullptr;
-std::array<HWND, 3> gProcessLabels{};
+HWND gWindow = nullptr;
+apolo::UiSnapshot gUiSnapshot;
 unsigned gPerformanceTicks = 0;
 bool gLocked = false, gTray = false, gExiting = false;
 ULONGLONG gLastAttempt = 0;
 UINT gTaskbarCreated = 0;
 std::wstring gConfig, gLog, gPolicyFile;
 
-HWND gRamLabel = nullptr;
-HWND gCommitLabel = nullptr;
-HWND gStatusLabel = nullptr;
 
 
 struct MemorySnapshot {
@@ -167,113 +160,41 @@ MemorySnapshot readMemory() {
 }
 
 void refreshDisplay() {
-    gLastSnapshot = readMemory();
-    const MemorySnapshot& memory = gLastSnapshot;
-
-    if (!memory.valid) {
-        SetWindowTextW(gRamLabel, L"Não foi possível consultar a memória.");
-        SetWindowTextW(gCommitLabel, L"");
-        apolo::updateDashboardGauge(gUi.ramProgress, 0);
-        return;
+    gLastSnapshot=readMemory();
+    const auto& m=gLastSnapshot;
+    gUiSnapshot.ramValid=m.valid;
+    if(m.valid && m.total>0) {
+        gUiSnapshot.ramPercent=static_cast<double>(m.loadPercent);
+        gUiSnapshot.ramTotalGiB=toGiB(m.total);
+        gUiSnapshot.ramUsedGiB=toGiB(m.total-m.available);
+        gUiSnapshot.ramAvailableGiB=toGiB(m.available);
     }
-    apolo::updateDashboardGauge(gUi.ramProgress, memory.loadPercent);
-
-    wchar_t buffer[256] = {};
-    std::swprintf(
-        buffer, std::size(buffer),
-        L"RAM: %.2f GiB usados / %.2f GiB totais  (%lu%%)",
-        toGiB(memory.total - memory.available),
-        toGiB(memory.total),
-        static_cast<unsigned long>(memory.loadPercent));
-    SetWindowTextW(gRamLabel, buffer);
-
-    if (memory.commitLimit != 0) {
-        std::swprintf(
-            buffer, std::size(buffer),
-            L"RAM disponivel: %.2f GiB     Comprometida: %.2f / %.2f GiB",
-            toGiB(memory.available),
-            toGiB(memory.commitUsed),
-            toGiB(memory.commitLimit));
-    } else {
-        std::swprintf(
-            buffer, std::size(buffer),
-            L"RAM disponivel: %.2f GiB",
-            toGiB(memory.available));
-    }
-
-    SetWindowTextW(gCommitLabel, buffer);
+    gUiSnapshot.commitUsedGiB=toGiB(m.commitUsed);
+    gUiSnapshot.commitLimitGiB=toGiB(m.commitLimit);
+    apolo::modernSetSnapshot(gUiSnapshot);
 }
 
-
-// O painel de desempenho so consulta dados; nenhuma rotina de limpeza e acionada aqui.
 void refreshPerformanceDisplay(bool updateProcessList) {
-    const auto performance = apolo::samplePerformance(updateProcessList);
-    wchar_t buffer[512] = {};
+    const auto performance=apolo::samplePerformance(updateProcessList);
+    gUiSnapshot.cpuValid=performance.cpuValid;
+    gUiSnapshot.cpuPercent=performance.cpuPercent;
+    gUiSnapshot.diskValid=performance.diskValid;
+    gUiSnapshot.diskReadMiB=performance.diskReadBytesPerSecond/1048576.0;
+    gUiSnapshot.diskWriteMiB=performance.diskWriteBytesPerSecond/1048576.0;
 
-    if (performance.cpuValid) {
-        std::swprintf(buffer, std::size(buffer),
-                      L"CPU (sistema): %.1f%% em uso", performance.cpuPercent);
-    } else {
-        std::swprintf(buffer, std::size(buffer),
-                      L"CPU (sistema): aguardando amostra...");
-    }
-    SetWindowTextW(gCpuLabel, buffer);
-    apolo::updateDashboardGauge(
-        gUi.cpuProgress,
-        performance.cpuValid ? static_cast<unsigned>(std::clamp(
-            performance.cpuPercent, 0.0, 100.0)) : 0U);
-
-    if (performance.diskValid) {
-        constexpr double toMiB = 1024.0 * 1024.0;
-        std::swprintf(buffer, std::size(buffer),
-                      L"Disco (E/S total): leitura %.2f MiB/s  |  gravação %.2f MiB/s",
-                      performance.diskReadBytesPerSecond / toMiB,
-                      performance.diskWriteBytesPerSecond / toMiB);
-    } else {
-        std::swprintf(buffer, std::size(buffer),
-                      L"Disco (E/S total): contadores indisponíveis ou coletando amostras");
-    }
-    SetWindowTextW(gDiskLabel, buffer);
-
-    if (!performance.processesValid) {
-        SetWindowTextW(gProcessLabels[0], L"Consultando processos da sua conta...");
-        SetWindowTextW(gProcessLabels[1], L"");
-        SetWindowTextW(gProcessLabels[2], L"");
-    } else if (performance.processCount == 0) {
-        SetWindowTextW(gProcessLabels[0], L"Nenhum processo acessível para consulta.");
-        SetWindowTextW(gProcessLabels[1], L"");
-        SetWindowTextW(gProcessLabels[2], L"");
-    } else {
-        for (std::size_t i = 0; i < gProcessLabels.size(); ++i) {
-            if (i >= performance.processCount) {
-                SetWindowTextW(gProcessLabels[i], L"");
-                continue;
-            }
-            const auto& proc = performance.topProcesses[i];
-            std::wstring name = proc.name.substr(0, 28);
-            std::swprintf(buffer, std::size(buffer),
-                          L"%zu. %ls (PID %lu)  -  %.1f MiB",
-                          i + 1, name.c_str(), static_cast<unsigned long>(proc.pid),
-                          static_cast<double>(proc.workingSetBytes) / (1024.0 * 1024.0));
-            SetWindowTextW(gProcessLabels[i], buffer);
-        }
-    }
-
-    // Historico volátil, sem persistencia e sem acionar nenhuma limpeza.
-    const bool validRam = gLastSnapshot.valid && gLastSnapshot.total > 0;
-    const bool validCommit = gLastSnapshot.commitLimit > 0;
-    const double available = validRam ?
-        100.0 * static_cast<double>(gLastSnapshot.available) /
-        static_cast<double>(gLastSnapshot.total) : 0.0;
-    const double committed = validCommit ?
-        100.0 * static_cast<double>(gLastSnapshot.commitUsed) /
-        static_cast<double>(gLastSnapshot.commitLimit) : 0.0;
-    apolo::recordTelemetry(performance, validRam,
-                           static_cast<double>(gLastSnapshot.loadPercent),
-                           available, validCommit, committed);
-    const std::wstring diagnosis = apolo::diagnosticSummary();
-    SetWindowTextW(gDiagnosisLabel, diagnosis.c_str());
-    apolo::refreshAnalysisWindow();
+    const auto& m=gLastSnapshot;
+    const bool ramValid=m.valid && m.total>0;
+    const bool commitValid=m.commitLimit>0;
+    const double available=ramValid?
+        static_cast<double>(m.available)*100.0/static_cast<double>(m.total):0.0;
+    const double commit=commitValid?
+        static_cast<double>(m.commitUsed)*100.0/static_cast<double>(m.commitLimit):0.0;
+    apolo::recordTelemetry(performance,ramValid,
+                           static_cast<double>(m.loadPercent),
+                           available,commitValid,commit);
+    gUiSnapshot.diagnosis=apolo::diagnosticSummary();
+    apolo::modernSetSnapshot(gUiSnapshot);
+    if(gWindow && IsWindowVisible(gWindow))InvalidateRect(gWindow,nullptr,FALSE);
 }
 
 bool readTokenUser(HANDLE token, std::vector<BYTE>& output, PSID& sid) {
@@ -460,7 +381,7 @@ void cleanNow(HWND window,bool autoMode) {
         L"e não garante aumento de desempenho.\n\nDeseja continuar?",
         L"Apolo - Confirmação",MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2)!=IDYES) return;
     gLastAttempt = GetTickCount64();
-    SetWindowTextW(gStatusLabel,autoMode ? L"Limpeza automática..." : L"Limpeza manual...");
+    apolo::modernSetStatus(autoMode ? L"Limpeza automática em execução..." : L"Limpeza manual em execução...");
     CleanupResult r = cleanCurrentUserProcesses();
     refreshDisplay();
     bool saved = history(autoMode,r);
@@ -472,7 +393,8 @@ void cleanNow(HWND window,bool autoMode) {
         autoMode ? L"Automática" : L"Manual",r.cleaned,r.eligible,r.skipped,delta);
     std::wstring message(text);
     if(!saved) message += L" Histórico não salvo.";
-    SetWindowTextW(gStatusLabel,message.c_str());
+    apolo::modernSetStatus(message);
+    if(gWindow && IsWindowVisible(gWindow))InvalidateRect(gWindow,nullptr,FALSE);
 }
 void openWindow(HWND h) { ShowWindow(h,SW_SHOWNORMAL); SetForegroundWindow(h); }
 bool iconAdd(HWND h) {
@@ -504,138 +426,150 @@ void trayMenu(HWND h) {
 }
 void saveUi(HWND window) {
     if(gLocked)return;
-    bool enabled=SendMessageW(gAutomatic,BM_GETCHECK,0,0)==BST_CHECKED;
-    if(enabled && !gOptions.automatic &&
-       MessageBoxW(window,L"Limpeza automática pode causar lentidão. "
-       L"Ative somente após teste em máquina piloto.\n\nContinuar?",
-       L"Apolo - Automação",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES) {
-        SendMessageW(gAutomatic,BM_SETCHECK,BST_UNCHECKED,0);return;
+    const apolo::UiSettings candidate=apolo::modernGetSettings();
+    const apolo::UiSettings previousUi={
+        gOptions.automatic,gOptions.startHidden,gLocked,
+        gOptions.threshold,gOptions.cooldown
+    };
+    if(candidate.automatic && !gOptions.automatic &&
+       MessageBoxW(window,L"A limpeza automática pode causar lentidão. "
+           L"Teste primeiro em uma única máquina.\n\nDeseja ativar?",
+           L"Apolo - Confirmação",MB_YESNO|MB_ICONWARNING|MB_DEFBUTTON2)!=IDYES) {
+        apolo::modernSetSettings(previousUi);
+        InvalidateRect(window,nullptr,FALSE);
+        return;
     }
-    LRESULT a=SendMessageW(gThreshold,CB_GETCURSEL,0,0);
-    LRESULT b=SendMessageW(gInterval,CB_GETCURSEL,0,0);
-    if(a<0||b<0||size_t(a)>=kLimits.size()||size_t(b)>=kIntervals.size())return;
-    Options previous=gOptions;
-    gOptions.automatic=enabled;gOptions.threshold=kLimits[size_t(a)];
-    gOptions.cooldown=kIntervals[size_t(b)];
-    gOptions.startHidden=SendMessageW(gStartHidden,BM_GETCHECK,0,0)==BST_CHECKED;
+    const Options previous=gOptions;
+    gOptions.automatic=candidate.automatic;
+    gOptions.startHidden=candidate.startHidden;
+    gOptions.threshold=closest(candidate.threshold,kLimits);
+    gOptions.cooldown=closest(candidate.cooldown,kIntervals);
     if(!writeConfig()) {
         gOptions=previous;
-        MessageBoxW(window,L"Falha ao salvar configurações.",L"Apolo",MB_ICONERROR);
+        apolo::modernSetSettings(previousUi);
+        MessageBoxW(window,L"Falha ao salvar as configurações.",L"Apolo",MB_ICONERROR);
         return;
     }
     gLastAttempt=GetTickCount64();
-    SetWindowTextW(gStatusLabel,L"Configurações salvas. Intervalo de segurança reiniciado.");
+    apolo::modernSetStatus(L"Configurações salvas. Intervalo de segurança reiniciado.");
+    InvalidateRect(window,nullptr,FALSE);
 }
 
-LRESULT CALLBACK mainWindowProc(HWND window, UINT message,
-                                WPARAM wParam, LPARAM lParam) {
-    if(gTaskbarCreated && message==gTaskbarCreated) {iconAdd(window);return 0;}
-    switch (message) {
+LRESULT CALLBACK mainWindowProc(HWND window,UINT message,
+                                WPARAM wParam,LPARAM lParam) {
+    if(gTaskbarCreated && message==gTaskbarCreated) {
+        iconAdd(window);return 0;
+    }
+    switch(message) {
     case WM_CREATE: {
-        const apolo::DashboardCommands ids = {
-            kRefreshButton, kCleanButton, kHistoryButton, kAnalysisButton,
-            kAuto, kStartHidden, kThreshold, kInterval, kSave
-        };
-        if (!apolo::createDashboardUi(window, gUi, ids,
-                                      gLocked, gOptions.automatic,
-                                      gOptions.startHidden, gOptions.threshold,
-                                      gOptions.cooldown)) {
-            MessageBoxW(window, L"Falha ao criar a interface do Apolo.",
-                        L"Apolo", MB_OK | MB_ICONERROR);
+        gWindow=window;
+        // Titlebar escura no Windows 11, sem compositor de terceiros.
+        const BOOL dark=TRUE;
+        DwmSetWindowAttribute(window,20,&dark,sizeof(dark));
+        if(!apolo::modernCreate(window)) {
+            MessageBoxW(window,L"Não foi possível inicializar o Direct2D/DirectWrite.",
+                        L"Apolo",MB_OK|MB_ICONERROR);
             return -1;
         }
-        gRamLabel = gUi.ramLabel;
-        gCommitLabel = gUi.commitLabel;
-        gCpuLabel = gUi.cpuLabel;
-        gDiskLabel = gUi.diskLabel;
-        gDiagnosisLabel = gUi.diagnosisLabel;
-        gProcessLabels = gUi.processLabels;
-        gStatusLabel = gUi.status;
-
-        gAutomatic = gUi.autoToggle;
-        gStartHidden = gUi.hiddenToggle;
-        gThreshold = gUi.thresholdCombo;
-        gInterval = gUi.intervalCombo;
-        gSaveButton = gUi.saveButton;
-
+        apolo::modernSetSettings({
+            gOptions.automatic,gOptions.startHidden,gLocked,
+            gOptions.threshold,gOptions.cooldown
+        });
         apolo::initializePerformance();
         iconAdd(window);
-        gLastAttempt = GetTickCount64();
-        SetTimer(window, kRefreshTimer, kRefreshIntervalMs, nullptr);
+        gLastAttempt=GetTickCount64();
+        SetTimer(window,kRefreshTimer,kRefreshIntervalMs,nullptr);
         refreshDisplay();
+        refreshPerformanceDisplay(true);
         return 0;
     }
-
     case WM_GETMINMAXINFO: {
-        auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
-        info->ptMinTrackSize.x = 850;
-        info->ptMinTrackSize.y = 715;
+        auto* limits=reinterpret_cast<MINMAXINFO*>(lParam);
+        limits->ptMinTrackSize.x=950;
+        limits->ptMinTrackSize.y=765;
         return 0;
     }
-
     case WM_SIZE:
-        if (wParam != SIZE_MINIMIZED)
-            apolo::layoutDashboardUi(window, gUi);
+        if(wParam!=SIZE_MINIMIZED)
+            apolo::modernResize(LOWORD(lParam),HIWORD(lParam));
         return 0;
-
-    case WM_NOTIFY: {
-        const auto* notification = reinterpret_cast<const NMHDR*>(lParam);
-        if (notification && notification->idFrom == apolo::kTabControlId &&
-            notification->code == TCN_SELCHANGE) {
-            const int selection = TabCtrl_GetCurSel(gUi.tabs);
-            apolo::setDashboardTab(gUi, selection);
-        }
+    case WM_PAINT:
+        apolo::modernPaint(window);
         return 0;
-    }
-
-    case WM_TIMER:
-        if(wParam==kRefreshTimer) {
-            refreshDisplay();
-            refreshPerformanceDisplay((++gPerformanceTicks % 2) == 1);
-            ULONGLONG elapsed=GetTickCount64()-gLastAttempt;
-            ULONGLONG interval=ULONGLONG(gOptions.cooldown)*60'000ULL;
-            if(gOptions.automatic && gLastSnapshot.valid &&
-               gLastSnapshot.loadPercent>=DWORD(gOptions.threshold) &&
-               elapsed>=interval) cleanNow(window,true);
-        }
-        return 0;
-
-    case WM_COMMAND:
-        switch(LOWORD(wParam)) {
-        case kRefreshButton:
+    case WM_ERASEBKGND:
+        return 1; // Direct2D pinta toda a superfície; evita flash branco.
+    case WM_LBUTTONUP: {
+        const auto action=apolo::modernClick(
+            window,GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam));
+        switch(action) {
+        case apolo::UiAction::Refresh:
             refreshDisplay();
             refreshPerformanceDisplay(true);
             break;
-        case kCleanButton:
+        case apolo::UiAction::Clean:
+            cleanNow(window,false);
+            break;
+        case apolo::UiAction::OpenCsv:
+            viewHistory(window);
+            break;
+        case apolo::UiAction::SaveSettings:
+            saveUi(window);
+            break;
+        case apolo::UiAction::LoadHistory:
+            apolo::modernLoadHistoryCsv(gLog);
+            InvalidateRect(window,nullptr,FALSE);
+            break;
+        default: break;
+        }
+        return 0;
+    }
+    case WM_MOUSEWHEEL:
+        apolo::modernWheel(window,GET_WHEEL_DELTA_WPARAM(wParam));
+        return 0;
+    case WM_MOUSEMOVE:
+        SetCursor(LoadCursorW(nullptr,apolo::modernOverControl(
+            GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam))?IDC_HAND:IDC_ARROW));
+        return 0;
+    case WM_TIMER:
+        if(wParam==kRefreshTimer) {
+            refreshDisplay();
+            refreshPerformanceDisplay((++gPerformanceTicks%2)==1);
+            const ULONGLONG elapsed=GetTickCount64()-gLastAttempt;
+            const ULONGLONG interval=
+                static_cast<ULONGLONG>(gOptions.cooldown)*60000ULL;
+            if(gOptions.automatic && gLastSnapshot.valid &&
+               gLastSnapshot.loadPercent>=static_cast<DWORD>(gOptions.threshold) &&
+               elapsed>=interval)cleanNow(window,true);
+        }
+        return 0;
+    case WM_COMMAND:
+        switch(LOWORD(wParam)) {
         case kCleanMenu:cleanNow(window,false);break;
-        case kHistoryButton:
         case kHistoryMenu:viewHistory(window);break;
-        case kAnalysisButton:apolo::showAnalysisWindow(window);break;
-        case kSave:saveUi(window);break;
         case kOpenMenu:openWindow(window);break;
         case kExitMenu:gExiting=true;DestroyWindow(window);break;
         }
         return 0;
     case kTrayMessage: {
-        UINT e=LOWORD(lParam);
-        if(e==WM_LBUTTONDBLCLK||e==NIN_SELECT||e==NIN_KEYSELECT)openWindow(window);
+        const UINT e=LOWORD(lParam);
+        if(e==WM_LBUTTONDBLCLK||e==NIN_SELECT||e==NIN_KEYSELECT)
+            openWindow(window);
         else if(e==WM_RBUTTONUP||e==WM_CONTEXTMENU)trayMenu(window);
         return 0;
     }
     case WM_CLOSE:
         if(!gExiting && gTray) {ShowWindow(window,SW_HIDE);return 0;}
         DestroyWindow(window);return 0;
-
     case WM_DESTROY:
-        KillTimer(window, kRefreshTimer);
-        apolo::closeAnalysisWindow();
+        KillTimer(window,kRefreshTimer);
         apolo::shutdownPerformance();
         iconRemove(window);
-        apolo::destroyDashboardUi(gUi);
+        apolo::modernDestroy();
+        gWindow=nullptr;
         PostQuitMessage(0);
         return 0;
     }
-    return DefWindowProcW(window, message, wParam, lParam);
+    return DefWindowProcW(window,message,wParam,lParam);
 }
 
 } // namespace
@@ -653,7 +587,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     wc.hInstance = instance;
     wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    wc.hbrBackground = nullptr;
     wc.lpszClassName = kWindowClass;
 
     if (!RegisterClassExW(&wc)) {
@@ -661,9 +595,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
 
     HWND window = CreateWindowExW(
-        0, kWindowClass, L"Apolo - Gerenciamento de memoria",
+        0, kWindowClass, L"Apolo v0.6 - Desempenho",
         WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 940, 765,
+        CW_USEDEFAULT, CW_USEDEFAULT, 1140, 830,
         nullptr, nullptr, instance, nullptr);
 
     if (!window) {
