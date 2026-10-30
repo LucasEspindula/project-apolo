@@ -1,6 +1,6 @@
 # Projeto Apolo
 
-**Versão atual: 0.2.0 (piloto) | Windows 11 x64 | C++20/Win32**
+**Versão atual: 0.3.0 (piloto) | Windows 11 x64 | C++20/Win32**
 
 O **Apolo** é um monitor e gerenciador conservador de memória desenvolvido de forma independente. Não incorpora código do Mem Reduct nem utiliza telemetria, rede, atualização remota, contorno de UAC ou APIs de limpeza de cache do kernel não documentadas.
 
@@ -17,7 +17,11 @@ O **Apolo** é um monitor e gerenciador conservador de memória desenvolvido de 
 | Histórico CSV de cada operação | Novo na v0.2 |
 | Modelo de política de TI (INI) | Novo na v0.2; apenas piloto |
 | Compilação automática Windows x64 | Configurada via GitHub Actions |
-| Diagnóstico CPU/disco e painel central | Planejado |
+| CPU total (amostragem de tempo ocioso) | Novo na v0.3 |
+| Taxas de leitura e gravação em disco (MiB/s) | Novo na v0.3 |
+| Três processos da conta atual com maior working set | Novo na v0.3 |
+| Sinais simples de atenção (CPU alta/RAM disponível baixa) | Novo na v0.3, **não é diagnóstico completo** |
+| Diagnóstico avançado e painel central | Planejado |
 
 ## Obter e atualizar o projeto
 
@@ -53,9 +57,23 @@ cmake --build build --config Release
 .\build\Release\Apolo.exe
 ~~~
 
-**Feche a versão antiga do Apolo antes de abrir a v0.2.** O Windows pode manter a v0.1 aberta enquanto você inicia outra compilação.
+**Feche a versão antiga do Apolo antes de abrir a v0.3.** O Windows pode manter a v0.1 aberta enquanto você inicia outra compilação.
 
 O repositório também possui um workflow na aba Actions, que tenta compilar usando Visual Studio/MSVC em Windows x64. O resultado da compilação deve ser verificado nessa aba; build bem-sucedida não substitui os testes funcionais.
+
+## Painel de desempenho da v0.3
+
+**CPU:** percentual de utilização total calculado pela diferença entre duas amostras de GetSystemTimes; a primeira amostra pode exibir "aguardando". Trata-se da utilização global aproximada no intervalo, não de frequência, temperatura ou gargalo confirmado.
+
+**Disco:** taxas agregadas de leitura e gravação em **MiB/s**, coletadas com contadores documentados do Windows pela API PDH. Contadores com nomes em inglês são utilizados independentemente do idioma do Windows. São necessárias pelo menos duas amostras com intervalo. Se os contadores estiverem desabilitados ou indisponíveis, o Apolo mostra "indisponível" — **não inventa valores**. As taxas não representam o percentual de ocupação nem indicam, por si, lentidão do disco.
+
+**Processos:** mostra até três processos acessíveis **da mesma conta e sessão**, ordenados por *working set* (memória física residente no processo), consultados aproximadamente a cada cinco segundos. Processos protegidos ou inacessíveis não são exibidos; assim, a lista não equivale ao ranking de todo o Windows nem à memória privada/comprometida. Os nomes consultados **não** são gravados no histórico ou enviados para a rede.
+
+**Sinais de atenção:** CPU acima de 90% em uma amostra ou RAM física disponível inferior a 10%. São apenas indicadores instantâneos, sem promessa de desempenho ou ação automática associada.
+
+Estas leituras são **somente leitura** e não alteram a rotina de limpeza nem habilitam a automação.
+
+Referências de APIs documentadas: [GetSystemTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getsystemtimes), [Coleta de dados PDH](https://learn.microsoft.com/en-us/windows/win32/perfctrs/collecting-performance-data), [GetProcessMemoryInfo](https://learn.microsoft.com/en-us/windows/win32/api/psapi/nf-psapi-getprocessmemoryinfo).
 
 ## Interface, opções e histórico
 
@@ -96,9 +114,12 @@ O script copia o executável para Program Files\Apolo e o modelo de política pa
 - As operações não usam privilégio administrativo de forma silenciosa.
 - Para uso em 11–30 computadores, ainda são necessários testes, revisão de segurança, ACLs, antivírus, assinatura digital e política de distribuição.
 
-## Checklist de validação v0.2 no Windows
+## Checklist de validação v0.3 no Windows
 
 1. Compilar Release x64, iniciar o programa e comparar as métricas de RAM com o Gerenciador de Tarefas.
+1a. Aguardar pelo menos duas atualizações (aproximadamente 5 s) e comparar CPU com o Gerenciador de Tarefas, permitindo pequenas diferenças de amostragem.
+1b. Testar leitura/gravação de arquivos e observar se a E/S do disco varia; quando PDH estiver indisponível, registrar isso sem tratar como falha fatal.
+1c. Conferir se os processos exibidos são da conta atual e se os valores de working set são coerentes. A lista pode omitir processos protegidos.
 2. Testar Atualizar e Limpar memória; confirmar que surge uma linha no CSV ao clicar em Ver histórico.
 3. Fechar a janela, recuperar o Apolo pela bandeja e terminar pelo menu Sair.
 4. Modificar configurações, clicar Salvar e conferir persistência após reiniciar.
@@ -109,13 +130,14 @@ O script copia o executável para Program Files\Apolo e o modelo de política pa
 ## Histórico
 
 - **v0.1.0:** monitoramento e limpeza manual. Compilada e testada pelo proprietário no Windows 11.
-- **v0.2.0 (piloto):** bandeja, configurações, histórico, automação opcional, política de TI e build no GitHub Actions. **Ainda depende de testes no Windows.**
+- **v0.2.0 (piloto):** bandeja, configurações, histórico, automação opcional, política de TI e build no GitHub Actions.
+- **v0.3.0 (piloto):** monitoramento de CPU, taxa de E/S do disco, principais processos da conta atual e sinais simples de atenção. **Validação funcional no Windows ainda pendente.**
 
 ## Roadmap
 
-1. Estabilizar a v0.2 e melhorar a interface.
-2. Monitoramento de CPU, disco e pressão real de memória.
-3. Diagnósticos fundamentados e recomendações mensuráveis.
-4. Instalação, assinatura e distribuição corporativa, futuramente painel central.
+1. Estabilizar e testar a v0.3 em Windows 11, especialmente custo de monitoramento e compatibilidade de contadores.
+2. Refinar interface e monitorar pressão real de memória (paginação, commit, falhas de página relevantes).
+3. Construir diagnósticos com base em histórico e métricas mensuráveis.
+4. Planejar instalação assinada e distribuição corporativa, depois painel central.
 
 A licença formal para distribuição pública ainda será definida.
