@@ -1,6 +1,6 @@
 # Projeto Apolo
 
-**Versão atual: 0.4.0 (piloto) | Windows 11 x64 | C++20/Win32**
+**Versão atual: 0.5.0 (piloto) | Windows 11 x64 | C++20/Win32**
 
 O **Apolo** é um monitor e gerenciador conservador de memória desenvolvido de forma independente. Não incorpora código do Mem Reduct nem utiliza telemetria, rede, atualização remota, contorno de UAC ou APIs de limpeza de cache do kernel não documentadas.
 
@@ -25,6 +25,9 @@ O **Apolo** é um monitor e gerenciador conservador de memória desenvolvido de 
 | Diagnóstico por sinais persistentes nas últimas leituras | Novo na v0.4 |
 | Lista ampliada de processos: até 24, com ordenação | Novo na v0.4 |
 | Indicador combinado de RAM disponível + commit | Novo na v0.4; **não mede paginação** |
+| Janela principal reorganizada com abas Visão geral/Configurações | Novo na v0.5 |
+| Barras visuais de utilização de RAM e CPU | Novo na v0.5 |
+| Janela principal redimensionável (com tamanho mínimo) | Novo na v0.5 |
 | Diagnóstico avançado e painel central | Planejado |
 
 ## Obter e atualizar o projeto
@@ -61,9 +64,28 @@ cmake --build build --config Release
 .\build\Release\Apolo.exe
 ~~~
 
-**Feche a versão antiga do Apolo antes de abrir a v0.4.** O Windows pode manter a v0.1 aberta enquanto você inicia outra compilação.
+**Feche a versão antiga do Apolo antes de abrir a v0.5.** O programa permanece na bandeja após fechar a janela; escolha **Sair do Apolo** antes de recompilar. Se o compilador mostrar `LNK1104: não é possível abrir Apolo.exe`, confirme no Gerenciador de Tarefas que nenhum Apolo.exe continua em execução. O Windows pode manter a v0.1 aberta enquanto você inicia outra compilação.
 
 **Fluxo adotado:** o GitHub armazena somente código, histórico e documentação. Não executamos build automática no GitHub Actions; o desenvolvedor faz `git pull`, compila localmente no Visual Studio e valida a execução.
+
+## Interface v0.5: abas e barras visuais
+
+A janela principal foi reorganizada com componentes Win32 nativos, sem bibliotecas de UI de terceiros e sem serviços de rede:
+
+- **Visão geral:** RAM, CPU e disco, barras de 0 a 100% de RAM/CPU, memória comprometida, avisos baseados no histórico e três processos com maior *working set* da conta atual. Botões: **Atualizar**, **Limpar memória...**, **Gráficos e análise** e **Histórico**.
+- **Configurações:** limpeza automática opcional, abertura na bandeja, limiar de RAM, intervalo mínimo e botão de salvar. A política corporativa continua bloqueando os controles quando aplicável.
+- **Redimensionamento:** a janela aceita redimensionamento e possui tamanho mínimo para evitar sobreposição de controles. As duas abas utilizam os mesmos dados e a mesma rotina de limpeza já existentes.
+- **Histórico gráfico:** continua acessível por **Gráficos e análise**, abrindo a janela desenvolvida na v0.4. O botão **Histórico** continua abrindo o CSV de limpezas.
+
+As barras não representam ganho de desempenho: mostram apenas a porcentagem observada nas leituras. CPU sem amostra válida permanece indicada como *coletando*, não é tratada como 0% confiável.
+
+### Teste rápido no Visual Studio
+
+1. Encerre o Apolo anterior usando **Sair do Apolo** no ícone da bandeja.
+2. Faça \`git pull origin main\`, selecione \`x64-Release\` e pressione **Ctrl + Shift + B**.
+3. Execute e alterne entre **Visão geral** e **Configurações**; confirme que as opções continuam salvas ao reiniciar.
+4. Redimensione a janela sem diminuir abaixo do tamanho mínimo; confira barras, botões e textos.
+5. Abra **Gráficos e análise** e confirme que as funções da v0.4 continuam intactas.
 
 ## Painel de análise da v0.4
 
@@ -131,7 +153,7 @@ O script copia o executável para Program Files\Apolo e o modelo de política pa
 - As operações não usam privilégio administrativo de forma silenciosa.
 - Para uso em 11–30 computadores, ainda são necessários testes, revisão de segurança, ACLs, antivírus, assinatura digital e política de distribuição.
 
-## Checklist de validação v0.4 no Windows
+## Checklist de validação v0.5 no Windows
 
 1. Compilar Release x64, iniciar o programa e comparar as métricas de RAM com o Gerenciador de Tarefas.
 1a. Aguardar pelo menos duas atualizações (aproximadamente 5 s) e comparar CPU com o Gerenciador de Tarefas, permitindo pequenas diferenças de amostragem.
@@ -153,11 +175,12 @@ O script copia o executável para Program Files\Apolo e o modelo de política pa
 - **v0.2.0 (piloto):** bandeja, configurações, histórico, automação opcional, política de TI. Compilação realizada manualmente no Visual Studio.
 - **v0.3.0 (piloto):** CPU, E/S do disco, principais processos e sinais simples de atenção.
 - **Correção v0.4 (Visual Studio):** ajustados os tipos dos limites da janela (`RECT`) usados por `std::max`, resolvendo os erros C2672/C2737 reportados nas linhas 95–96 de `analysis.cpp`.
-- **v0.4.0 (piloto):** gráficos locais 1/5/15 min, alertas persistentes e lista ampliada de processos. **Aguardando compilação manual e validação no Windows.**
+- **v0.4.0 (piloto):** gráficos locais 1/5/15 min, alertas persistentes e lista ampliada de processos. Corrigidos erros de tipos em `std::max` no layout.
+- **v0.5.0 (piloto):** janela com abas, barras de RAM/CPU, controles agrupados, redimensionamento e README atualizado. **Aguardando sua compilação e teste local no Windows.**
 
 ## Roadmap
 
-1. Estabilizar e testar a v0.4 em Windows 11, especialmente os gráficos, consumo de recursos e interface.
+1. Testar e estabilizar a v0.5 no Windows 11, incluindo alternância de abas, redimensionamento, salvamento e consumo do próprio Apolo.
 2. Melhorar responsividade e UI, incluindo métricas reais de paginação e latência de disco.
 3. Construir diagnósticos com base em histórico e métricas mensuráveis.
 4. Planejar instalação assinada e distribuição corporativa, depois painel central.
