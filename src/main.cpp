@@ -1,4 +1,4 @@
-// Apolo 0.3.0 - monitoramento de desempenho e limpeza conservadora para Windows 11.
+// Apolo 0.4.0 - monitoramento de desempenho e limpeza conservadora para Windows 11.
 // Implementacao independente, utilizando APIs documentadas do Windows.
 
 #include <windows.h>
@@ -8,6 +8,7 @@
 #include <shlobj.h>
 
 #include "performance.h"
+#include "analysis.h"
 
 #include <algorithm>
 #include <array>
@@ -28,7 +29,7 @@ constexpr UINT kRefreshIntervalMs = 2500;
 constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kTrayId = 1;
 constexpr int kHistoryButton = 103, kAuto = 104, kThreshold = 105, kInterval = 106;
-constexpr int kStartHidden = 107, kSave = 108;
+constexpr int kStartHidden = 107, kSave = 108, kAnalysisButton = 109;
 constexpr int kOpenMenu = 301, kCleanMenu = 302, kHistoryMenu = 303, kExitMenu = 304;
 constexpr std::array<int, 6> kLimits = {70, 75, 80, 85, 90, 95};
 constexpr std::array<int, 5> kIntervals = {15, 30, 60, 120, 240};
@@ -250,18 +251,21 @@ void refreshPerformanceDisplay(bool updateProcessList) {
         }
     }
 
-    // Sinais isolados não equivalem a diagnóstico de gargalo.
-    if (gLastSnapshot.valid && gLastSnapshot.total > 0 &&
-        gLastSnapshot.available * 100ULL < gLastSnapshot.total * 10ULL) {
-        SetWindowTextW(gDiagnosisLabel,
-                       L"Sinal de atenção: menos de 10% da RAM física disponível.");
-    } else if (performance.cpuValid && performance.cpuPercent >= 90.0) {
-        SetWindowTextW(gDiagnosisLabel,
-                       L"Sinal de atenção: CPU acima de 90% nesta amostra.");
-    } else {
-        SetWindowTextW(gDiagnosisLabel,
-                       L"Leituras instantâneas: ainda não representam diagnóstico de desempenho.");
-    }
+    // Historico volátil, sem persistencia e sem acionar nenhuma limpeza.
+    const bool validRam = gLastSnapshot.valid && gLastSnapshot.total > 0;
+    const bool validCommit = gLastSnapshot.commitLimit > 0;
+    const double available = validRam ?
+        100.0 * static_cast<double>(gLastSnapshot.available) /
+        static_cast<double>(gLastSnapshot.total) : 0.0;
+    const double committed = validCommit ?
+        100.0 * static_cast<double>(gLastSnapshot.commitUsed) /
+        static_cast<double>(gLastSnapshot.commitLimit) : 0.0;
+    apolo::recordTelemetry(performance, validRam,
+                           static_cast<double>(gLastSnapshot.loadPercent),
+                           available, validCommit, committed);
+    const std::wstring diagnosis = apolo::diagnosticSummary();
+    SetWindowTextW(gDiagnosisLabel, diagnosis.c_str());
+    apolo::refreshAnalysisWindow();
 }
 
 bool readTokenUser(HANDLE token, std::vector<BYTE>& output, PSID& sid) {
@@ -557,7 +561,7 @@ LRESULT CALLBACK mainWindowProc(HWND window, UINT message,
                                 SS_LEFT, 25, 16, 735, 48);
         if (gTitleFont) SendMessageW(title, WM_SETFONT,
                                      reinterpret_cast<WPARAM>(gTitleFont), TRUE);
-        addControl(window, L"STATIC", L"Monitor de recursos | v0.3.0 (piloto)",
+        addControl(window, L"STATIC", L"Monitor de recursos | v0.4.0 (piloto)",
                    SS_LEFT, 27, 68, 735, 28);
 
         gRamLabel = addControl(window, L"STATIC", L"Consultando memória...",
@@ -568,14 +572,16 @@ LRESULT CALLBACK mainWindowProc(HWND window, UINT message,
         gDiskLabel = addControl(window, L"STATIC", L"Disco: aguardando amostra...",
                                 SS_LEFT, 28, 222, 748, 30);
         gDiagnosisLabel = addControl(window, L"STATIC", L"",
-                                     SS_LEFT, 28, 260, 748, 31);
+                                     SS_LEFT, 28, 257, 748, 46);
 
         addControl(window, L"BUTTON", L"Atualizar", BS_PUSHBUTTON,
                    28, 306, 145, 39, kRefreshButton);
         addControl(window, L"BUTTON", L"Limpar memória (manual)", BS_PUSHBUTTON,
                    188, 306, 260, 39, kCleanButton);
         addControl(window, L"BUTTON", L"Ver histórico", BS_PUSHBUTTON,
-                   462, 306, 176, 39, kHistoryButton);
+                   460, 306, 162, 39, kHistoryButton);
+        addControl(window, L"BUTTON", L"Análise v0.4", BS_PUSHBUTTON,
+                   636, 306, 140, 39, kAnalysisButton);
 
         addControl(window, L"STATIC", L"PROCESSOS COM MAIOR WORKING SET (SUA CONTA)",
                    SS_LEFT, 28, 373, 747, 27);
@@ -657,6 +663,7 @@ LRESULT CALLBACK mainWindowProc(HWND window, UINT message,
         case kCleanMenu:cleanNow(window,false);break;
         case kHistoryButton:
         case kHistoryMenu:viewHistory(window);break;
+        case kAnalysisButton:apolo::showAnalysisWindow(window);break;
         case kSave:saveUi(window);break;
         case kOpenMenu:openWindow(window);break;
         case kExitMenu:gExiting=true;DestroyWindow(window);break;
@@ -674,6 +681,7 @@ LRESULT CALLBACK mainWindowProc(HWND window, UINT message,
 
     case WM_DESTROY:
         KillTimer(window, kRefreshTimer);
+        apolo::closeAnalysisWindow();
         apolo::shutdownPerformance();
         iconRemove(window);
         if(gTitleFont)DeleteObject(gTitleFont);

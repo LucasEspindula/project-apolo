@@ -1,6 +1,6 @@
 # Projeto Apolo
 
-**Versão atual: 0.3.0 (piloto) | Windows 11 x64 | C++20/Win32**
+**Versão atual: 0.4.0 (piloto) | Windows 11 x64 | C++20/Win32**
 
 O **Apolo** é um monitor e gerenciador conservador de memória desenvolvido de forma independente. Não incorpora código do Mem Reduct nem utiliza telemetria, rede, atualização remota, contorno de UAC ou APIs de limpeza de cache do kernel não documentadas.
 
@@ -21,6 +21,10 @@ O **Apolo** é um monitor e gerenciador conservador de memória desenvolvido de 
 | Taxas de leitura e gravação em disco (MiB/s) | Novo na v0.3 |
 | Três processos da conta atual com maior working set | Novo na v0.3 |
 | Sinais simples de atenção (CPU alta/RAM disponível baixa) | Novo na v0.3, **não é diagnóstico completo** |
+| Gráficos locais de CPU, RAM e E/S de disco (últimos 1/5/15 min) | Novo na v0.4 |
+| Diagnóstico por sinais persistentes nas últimas leituras | Novo na v0.4 |
+| Lista ampliada de processos: até 24, com ordenação | Novo na v0.4 |
+| Indicador combinado de RAM disponível + commit | Novo na v0.4; **não mede paginação** |
 | Diagnóstico avançado e painel central | Planejado |
 
 ## Obter e atualizar o projeto
@@ -57,9 +61,22 @@ cmake --build build --config Release
 .\build\Release\Apolo.exe
 ~~~
 
-**Feche a versão antiga do Apolo antes de abrir a v0.3.** O Windows pode manter a v0.1 aberta enquanto você inicia outra compilação.
+**Feche a versão antiga do Apolo antes de abrir a v0.4.** O Windows pode manter a v0.1 aberta enquanto você inicia outra compilação.
 
 **Fluxo adotado:** o GitHub armazena somente código, histórico e documentação. Não executamos build automática no GitHub Actions; o desenvolvedor faz `git pull`, compila localmente no Visual Studio e valida a execução.
+
+## Painel de análise da v0.4
+
+O botão **Análise v0.4** abre uma segunda janela, sem alterar o funcionamento da limpeza ou das configurações. Nela você pode:
+
+- Visualizar **gráficos de CPU, RAM utilizada e transferência total do disco**; selecionar últimos **1, 5 ou 15 minutos**.
+- Consultar **até 24 processos** da **mesma conta e sessão**, com nome, PID e *working set*; ordenar por maior memória, nome ou PID. Trata-se dos 24 maiores *working sets* acessíveis, **não** de todos os processos do Windows.
+- Ler um **diagnóstico preliminar** baseado em **pelo menos 8 amostras válidas** (~20 segundos) e persistência de sinal em **pelo menos 75%** das amostras nos últimos 60 segundos.
+- Receber alertas de CPU muito elevada (90% ou mais, no intervalo de amostragem) e de baixa RAM disponível (< 10%) combinada com memória comprometida elevada (90% ou mais do limite).
+
+O histórico de gráficos é **volátil e limitado a 360 amostras** (~15 minutos a 2,5 s), ocupando memória enquanto o Apolo roda. **Não grava os dados em disco nem envia telemetria**. Amostras inválidas não viram números inventados. Leituras de processos acontecem aproximadamente a cada cinco segundos; o monitor de recursos mantém as restrições de conta/sessão da v0.3. As opções da janela não alteram processos.
+
+**Cuidado na interpretação:** memória comprometida elevada + pouca RAM disponível é apenas **sinal de possível pressão**, não uma medida direta da paginação. As taxas de transferência do disco não medem latência nem confirmam gargalo de armazenamento. Diagnósticos não acionam limpeza automática; a regra de automação já existente continua independente.
 
 ## Painel de desempenho da v0.3
 
@@ -69,7 +86,7 @@ cmake --build build --config Release
 
 **Processos:** mostra até três processos acessíveis **da mesma conta e sessão**, ordenados por *working set* (memória física residente no processo), consultados aproximadamente a cada cinco segundos. Processos protegidos ou inacessíveis não são exibidos; assim, a lista não equivale ao ranking de todo o Windows nem à memória privada/comprometida. Os nomes consultados **não** são gravados no histórico ou enviados para a rede.
 
-**Sinais de atenção:** CPU acima de 90% em uma amostra ou RAM física disponível inferior a 10%. São apenas indicadores instantâneos, sem promessa de desempenho ou ação automática associada.
+**Sinais de atenção:** na v0.4, o texto de diagnóstico passa a considerar amostras repetidas em vez de uma única leitura isolada. Não há promessa de ganho de desempenho nem ação automática derivada desses avisos.
 
 Estas leituras são **somente leitura** e não alteram a rotina de limpeza nem habilitam a automação.
 
@@ -114,29 +131,33 @@ O script copia o executável para Program Files\Apolo e o modelo de política pa
 - As operações não usam privilégio administrativo de forma silenciosa.
 - Para uso em 11–30 computadores, ainda são necessários testes, revisão de segurança, ACLs, antivírus, assinatura digital e política de distribuição.
 
-## Checklist de validação v0.3 no Windows
+## Checklist de validação v0.4 no Windows
 
 1. Compilar Release x64, iniciar o programa e comparar as métricas de RAM com o Gerenciador de Tarefas.
 1a. Aguardar pelo menos duas atualizações (aproximadamente 5 s) e comparar CPU com o Gerenciador de Tarefas, permitindo pequenas diferenças de amostragem.
 1b. Testar leitura/gravação de arquivos e observar se a E/S do disco varia; quando PDH estiver indisponível, registrar isso sem tratar como falha fatal.
 1c. Conferir se os processos exibidos são da conta atual e se os valores de working set são coerentes. A lista pode omitir processos protegidos.
-2. Testar Atualizar e Limpar memória; confirmar que surge uma linha no CSV ao clicar em Ver histórico.
-3. Fechar a janela, recuperar o Apolo pela bandeja e terminar pelo menu Sair.
-4. Modificar configurações, clicar Salvar e conferir persistência após reiniciar.
-5. Confirmar que a limpeza automática permanece desligada por padrão; só testar em máquina piloto autorizada.
-6. Testar política com ACLs verificadas, confirmando que ela prevalece e bloqueia a edição.
-7. Conferir a saída de compilação do Visual Studio e registrar os erros encontrados para correção no próximo commit.
+2. Abrir **Análise v0.4** e verificar gráficos após pelo menos 20 segundos; alternar 1/5/15 minutos e observar que o histórico reinicia ao fechar o processo.
+2a. Verificar a lista de até 24 processos da conta; alternar ordenação por memória, nome e PID. Confirme que nenhuma ação de encerramento foi adicionada.
+2b. Verificar que alertas só aparecem após amostras suficientes e não ativam limpeza.
+3. Testar Atualizar e Limpar memória; confirmar que surge uma linha no CSV ao clicar em Ver histórico.
+4. Fechar a janela, recuperar o Apolo pela bandeja e terminar pelo menu Sair.
+5. Modificar configurações, clicar Salvar e conferir persistência após reiniciar.
+6. Confirmar que a limpeza automática permanece desligada por padrão; só testar em máquina piloto autorizada.
+7. Testar política com ACLs verificadas, confirmando que ela prevalece e bloqueia a edição.
+8. Conferir a saída de compilação do Visual Studio e registrar os erros encontrados para correção no próximo commit.
 
 ## Histórico
 
 - **v0.1.0:** monitoramento e limpeza manual. Compilada e testada pelo proprietário no Windows 11.
 - **v0.2.0 (piloto):** bandeja, configurações, histórico, automação opcional, política de TI. Compilação realizada manualmente no Visual Studio.
-- **v0.3.0 (piloto):** monitoramento de CPU, taxa de E/S do disco, principais processos da conta atual e sinais simples de atenção. **Validação funcional no Windows ainda pendente.**
+- **v0.3.0 (piloto):** CPU, E/S do disco, principais processos e sinais simples de atenção.
+- **v0.4.0 (piloto):** gráficos locais 1/5/15 min, alertas persistentes e lista ampliada de processos. **Aguardando compilação manual e validação no Windows.**
 
 ## Roadmap
 
-1. Estabilizar e testar a v0.3 em Windows 11, especialmente custo de monitoramento e compatibilidade de contadores.
-2. Refinar interface e monitorar pressão real de memória (paginação, commit, falhas de página relevantes).
+1. Estabilizar e testar a v0.4 em Windows 11, especialmente os gráficos, consumo de recursos e interface.
+2. Melhorar responsividade e UI, incluindo métricas reais de paginação e latência de disco.
 3. Construir diagnósticos com base em histórico e métricas mensuráveis.
 4. Planejar instalação assinada e distribuição corporativa, depois painel central.
 

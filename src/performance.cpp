@@ -22,7 +22,7 @@ PDH_HQUERY gDiskQuery = nullptr;
 PDH_HCOUNTER gReadCounter = nullptr;
 PDH_HCOUNTER gWriteCounter = nullptr;
 
-std::array<ProcessSample, 3> gCachedProcesses{};
+std::array<ProcessSample, 24> gCachedProcesses{};
 std::size_t gCachedProcessCount = 0;
 bool gHaveProcessSample = false;
 

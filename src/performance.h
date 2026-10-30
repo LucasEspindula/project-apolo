@@ -23,7 +23,7 @@ struct PerformanceSample {
     double diskWriteBytesPerSecond = 0.0;
 
     bool processesValid = false;
-    std::array<ProcessSample, 3> topProcesses{};
+    std::array<ProcessSample, 24> topProcesses{};
     std::size_t processCount = 0;
 };
 
