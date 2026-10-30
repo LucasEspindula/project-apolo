@@ -92,8 +92,8 @@ void arrange(HWND window) {
     if (!gGraph) return;
     RECT client = {};
     GetClientRect(window, &client);
-    const int w = std::max(520, client.right);
-    const int h = std::max(490, client.bottom);
+    const int w = std::max(520, static_cast<int>(client.right - client.left));
+    const int h = std::max(490, static_cast<int>(client.bottom - client.top));
     const int chartHeight = std::max(210, (h - 160) / 2);
     const int headingY = 58 + chartHeight + 13;
     const int listY = headingY + 29;

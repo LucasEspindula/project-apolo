@@ -152,6 +152,7 @@ O script copia o executável para Program Files\Apolo e o modelo de política pa
 - **v0.1.0:** monitoramento e limpeza manual. Compilada e testada pelo proprietário no Windows 11.
 - **v0.2.0 (piloto):** bandeja, configurações, histórico, automação opcional, política de TI. Compilação realizada manualmente no Visual Studio.
 - **v0.3.0 (piloto):** CPU, E/S do disco, principais processos e sinais simples de atenção.
+- **Correção v0.4 (Visual Studio):** ajustados os tipos dos limites da janela (`RECT`) usados por `std::max`, resolvendo os erros C2672/C2737 reportados nas linhas 95–96 de `analysis.cpp`.
 - **v0.4.0 (piloto):** gráficos locais 1/5/15 min, alertas persistentes e lista ampliada de processos. **Aguardando compilação manual e validação no Windows.**
 
 ## Roadmap
