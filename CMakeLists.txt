@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Apolo VERSION 0.6.0 LANGUAGES CXX)
+project(Apolo VERSION 0.6.1 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "Apolo requer Windows 11.")

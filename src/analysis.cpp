@@ -99,21 +99,21 @@ std::wstring diagnosticSummary() {
         return count >= 8 && yes*4 >= count*3;
     };
     if (sustained(jointHigh,jointCount))
-        return L"ATENÇÃO: RAM disponível baixa e memória comprometida elevada "
-               L"de forma persistente. Investigue a paginação antes de limpar.";
+        return L"Detectei pressão na RAM e no limite de memória comprometida. "
+               L"Vou continuar monitorando; investigue a paginação antes de limpar.";
     if (sustained(cpuHigh,cpuCount))
-        return L"ATENÇÃO: uso de CPU acima de 90% repetidamente no último minuto. "
-               L"Identifique as tarefas antes de otimizar.";
+        return L"Detectei uso de CPU acima de 90% em leituras repetidas. "
+               L"Vou seguir monitorando; confira os processos ativos.";
     if (sustained(ramLow,ramCount))
-        return L"ATENÇÃO: RAM disponível abaixo de 10% em leituras repetidas. "
-               L"Verifique também a memória comprometida.";
+        return L"Detectei pouca RAM disponível. Confira os processos que mais "
+               L"consomem memória; seguirei monitorando.";
     if (sustained(commitHigh,commitCount))
-        return L"ATENÇÃO: memória comprometida próxima ao limite. "
-               L"Isso não significa necessariamente RAM física esgotada.";
+        return L"Detectei memória comprometida próxima ao limite. A RAM física "
+               L"pode ainda estar disponível. Continuarei monitorando.";
     if (cpuCount < 8 || ramCount < 8)
-        return L"Coletando amostras para diagnóstico. Nenhuma ação automática "
-               L"é iniciada por estes avisos.";
-    return L"Sem sinais persistentes de CPU alta ou pressão de memória "
-           L"nas últimas leituras. Outros gargalos ainda são possíveis.";
+        return L"Estou reunindo dados para avaliar o sistema. Ainda não há "
+               L"amostras suficientes para um diagnóstico confiável.";
+    return L"Não detectei pressão persistente de CPU ou memória. Continuo "
+           L"monitorando; outros gargalos ainda podem existir.";
 }
 } // namespace apolo

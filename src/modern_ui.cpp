@@ -66,7 +66,7 @@ std::size_t gLogCount = 0;
 int gPage = 0, gRange = 1, gSort = 0, gScroll = 0, gHistoryScroll = 0;
 UiSnapshot gData;
 UiSettings gSettings;
-std::wstring gStatus = L"Pronto para monitorar. Sem serviços de rede.";
+std::wstring gStatus = L"Apolo está monitorando o sistema. Sem serviços de rede.";
 float gWidth = 1100, gHeight = 780;
 float gSide = 220, gX = 248, gContentW = 800;
 
@@ -84,6 +84,18 @@ void roundFill(float x,float y,float w,float h,float radius,UINT32 rgb) {
 void roundStroke(float x,float y,float w,float h,float radius,UINT32 rgb) {
     brush(rgb);
     gTarget->DrawRoundedRectangle(D2D1::RoundedRect(rect(x,y,w,h),radius,radius),gBrush,1.0f);
+}
+void roundFillAlpha(float x,float y,float w,float h,float radius,UINT32 rgb,float alpha) {
+    brush(rgb,alpha);
+    gTarget->FillRoundedRectangle(D2D1::RoundedRect(rect(x,y,w,h),radius,radius),gBrush);
+}
+void ellipseFill(float x,float y,float w,float h,UINT32 rgb) {
+    brush(rgb);
+    gTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x+w*0.5f,y+h*0.5f),w*0.5f,h*0.5f),gBrush);
+}
+void ellipseStroke(float x,float y,float w,float h,UINT32 rgb,float width=1.0f) {
+    brush(rgb);
+    gTarget->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(x+w*0.5f,y+h*0.5f),w*0.5f,h*0.5f),gBrush,width);
 }
 void line(float x1,float y1,float x2,float y2,UINT32 rgb,float weight=1) {
     brush(rgb);
@@ -111,12 +123,94 @@ void pill(float x,float y,float w,float h,const std::wstring& label,
     text(label,x+13,y+8,w-22,h-11,gCaption,selected?kBlue:kMuted);
     if(action)hit(x,y,w,h,action);
 }
+void drawRefreshGlyph(float x,float y,UINT32 rgb) {
+    line(x+5,y+11,x+8,y+5,rgb,2.2f);
+    line(x+8,y+5,x+14,y+3,rgb,2.2f);
+    line(x+14,y+3,x+20,y+7,rgb,2.2f);
+    line(x+20,y+7,x+21,y+12,rgb,2.2f);
+    line(x+21,y+12,x+15,y+11,rgb,2.2f);
+    line(x+21,y+12,x+19,y+6,rgb,2.2f);
+    line(x+19,y+17,x+16,y+23,rgb,2.2f);
+    line(x+16,y+23,x+10,y+24,rgb,2.2f);
+    line(x+10,y+24,x+4,y+20,rgb,2.2f);
+    line(x+4,y+20,x+3,y+15,rgb,2.2f);
+    line(x+3,y+15,x+9,y+16,rgb,2.2f);
+    line(x+3,y+15,x+5,y+21,rgb,2.2f);
+}
+void drawBroomGlyph(float x,float y,UINT32 rgb) {
+    line(x+8,y+3,x+20,y+16,rgb,3.0f);
+    line(x+18,y+14,x+24,y+20,rgb,2.4f);
+    line(x+24,y+19,x+17,y+27,rgb,2.0f);
+    line(x+17,y+27,x+11,y+25,rgb,2.0f);
+    line(x+17,y+27,x+19,y+31,rgb,2.0f);
+    line(x+11,y+25,x+12,y+30,rgb,1.8f);
+    line(x+12,y+30,x+19,y+32,rgb,1.8f);
+    line(x+19,y+32,x+25,y+24,rgb,1.8f);
+}
 void button(float x,float y,float w,float h,const std::wstring& label,
             int action,bool primary=false) {
-    roundFill(x,y,w,h,10,primary?kBlue:kPanelHover);
-    if(!primary)roundStroke(x,y,w,h,10,kBorder);
-    text(label,x+15,y+(h-19)*0.5f,w-24,23,gBody,primary?kBackground:kText);
+    if(primary) {
+        roundFillAlpha(x-2,y-2,w+4,h+4,14,kBlue,0.16f);
+        roundFill(x,y,w,h,12,0x187BC8);
+        roundStroke(x,y,w,h,12,kTeal);
+        line(x+14,y+1,x+w-14,y+1,kTeal,1.4f);
+    } else {
+        roundFill(x,y,w,h,12,0x202E3D);
+        roundStroke(x,y,w,h,12,kBlue);
+        line(x+14,y+1,x+w-14,y+1,kMuted,0.8f);
+    }
+    const bool hasIcon=action==kRefresh||action==kClean;
+    if(action==kRefresh)drawRefreshGlyph(x+13,y+(h-34)*0.5f,kTeal);
+    if(action==kClean)drawBroomGlyph(x+13,y+(h-34)*0.5f,kText);
+    const float labelX=x+(hasIcon?48.0f:15.0f);
+    text(label,labelX,y+(h-19)*0.5f,w-(labelX-x)-10.0f,23,gBody,kText);
     if(action)hit(x,y,w,h,action);
+}
+void drawApolloEmblem(float x,float y,float size) {
+    const float cx=x+size*0.5f,cy=y+size*0.5f;
+    ellipseStroke(x+1,y+1,size-2,size-2,kBorder,1.0f);
+    ellipseStroke(x+5,y+5,size-10,size-10,kBlue,1.1f);
+    ellipseFill(cx-3.5f,cy-3.5f,7,7,kTeal);
+    line(cx-7,cy+8,cx-12,cy-8,kMuted,1.1f);
+    line(cx+7,cy+8,cx+12,cy-8,kMuted,1.1f);
+    ellipseStroke(cx-15,cy-5,6,9,kTeal,1.0f);
+    ellipseStroke(cx-13,cy-13,6,9,kTeal,1.0f);
+    ellipseStroke(cx+9,cy-5,6,9,kTeal,1.0f);
+    ellipseStroke(cx+7,cy-13,6,9,kTeal,1.0f);
+}
+void drawApolloPortrait(float x,float y,float w,float h) {
+    ellipseStroke(x+5,y+5,w-10,h-10,kBlue,1.5f);
+    ellipseStroke(x+10,y+10,w-20,h-20,kBorder,1.0f);
+
+    // Louros laterais: referência clássica, reinterpretada em ciano.
+    for(int i=0;i<4;++i) {
+        const float t=static_cast<float>(i);
+        const float yy=y+h*(0.61f-t*0.105f);
+        line(x+w*0.19f,yy+5,x+w*(0.10f+t*0.012f),yy-5,kTeal,1.0f);
+        ellipseStroke(x+w*(0.055f+t*0.018f),yy-11,8,13,kTeal,1.0f);
+        line(x+w*0.81f,yy+5,x+w*(0.90f-t*0.012f),yy-5,kTeal,1.0f);
+        ellipseStroke(x+w*(0.865f-t*0.018f),yy-11,8,13,kTeal,1.0f);
+    }
+
+    // Busto de mármore estilizado, desenhado diretamente pelo Direct2D.
+    roundFill(x+w*0.19f,y+h*0.75f,w*0.62f,h*0.19f,15,0x8795A4);
+    roundFill(x+w*0.40f,y+h*0.59f,w*0.22f,h*0.23f,8,0xAAB6C3);
+    ellipseFill(x+w*0.27f,y+h*0.16f,w*0.49f,h*0.54f,0x778697);
+    ellipseFill(x+w*0.39f,y+h*0.22f,w*0.39f,h*0.47f,0xD5DDE6);
+
+    // Perfil, nariz, olhar e cachos da escultura.
+    line(x+w*0.69f,y+h*0.43f,x+w*0.86f,y+h*0.48f,0xD5DDE6,3.0f);
+    line(x+w*0.86f,y+h*0.48f,x+w*0.78f,y+h*0.52f,0xD5DDE6,2.0f);
+    line(x+w*0.73f,y+h*0.56f,x+w*0.81f,y+h*0.56f,0x778697,1.3f);
+    line(x+w*0.62f,y+h*0.43f,x+w*0.70f,y+h*0.43f,0x596879,1.5f);
+    line(x+w*0.60f,y+h*0.40f,x+w*0.72f,y+h*0.39f,0x778697,1.5f);
+    ellipseFill(x+w*0.30f,y+h*0.17f,w*0.19f,h*0.14f,0x9EABB8);
+    ellipseFill(x+w*0.39f,y+h*0.13f,w*0.18f,h*0.14f,0xAAB6C3);
+    ellipseFill(x+w*0.50f,y+h*0.14f,w*0.17f,h*0.13f,0x9EABB8);
+    ellipseFill(x+w*0.29f,y+h*0.29f,w*0.15f,h*0.13f,0xAAB6C3);
+    ellipseFill(x+w*0.35f,y+h*0.38f,w*0.11f,h*0.10f,0xAAB6C3);
+    line(x+w*0.29f,y+h*0.81f,x+w*0.53f,y+h*0.93f,kBorder,1.2f);
+    line(x+w*0.72f,y+h*0.81f,x+w*0.54f,y+h*0.93f,kBorder,1.2f);
 }
 std::wstring format(const wchar_t* pattern,double n) {
     wchar_t buffer[120]={};
@@ -158,7 +252,7 @@ void paintFrame() {
     gTarget->FillRectangle(rect(0,0,gSide,gHeight),gBrush);
     line(gSide,0,gSide,gHeight,kBorder);
 
-    text(L"◉",29,30,36,42,gTitle,kTeal);
+    drawApolloEmblem(27,29,31);
     text(L"APOLO",64,30,gSide-70,48,gTitle,kText);
     text(L"PERFORMANCE ENGINE",31,80,gSide-35,25,gCaption,kMuted);
     line(22,125,gSide-22,125,kBorder);
@@ -176,7 +270,7 @@ void paintFrame() {
         hit(17,y,gSide-33,46,kNavBase+i);
     }
     text(L"NATIVO  /  OFFLINE",26,gHeight-96,gSide-40,24,gCaption,kTeal);
-    text(L"Versão 0.6  •  Piloto",26,gHeight-69,gSide-39,25,gCaption,kMuted);
+    text(L"Versão 0.6.1  •  Piloto",26,gHeight-69,gSide-39,25,gCaption,kMuted);
 
     const wchar_t* titles[]={L"Visão geral",L"Desempenho",L"Processos",
                              L"Histórico",L"Configurações"};
@@ -187,10 +281,20 @@ void paintFrame() {
         L"Operações de limpeza registradas neste computador",
         L"Preferências locais de monitoramento e limpeza"
     };
-    text(titles[gPage],gX,29,gContentW-210,48,gTitle);
+    text(titles[gPage],gX,29,gContentW-310,48,gTitle);
     text(sub[gPage],gX,78,gContentW-10,30,gBody,kMuted);
-    roundFill(gX+gContentW-170,37,170,31,14,kPanel);
-    text(L"● MONITOR LOCAL",gX+gContentW-158,44,151,22,gCaption,kTeal);
+    const float statusX=gX+gContentW-282.0f;
+    roundFill(statusX,34,282,37,18,kPanel);
+    roundStroke(statusX,34,282,37,18,kBorder);
+    roundFillAlpha(statusX+11,44,17,17,9,kTeal,0.16f);
+    ellipseFill(statusX+16,49,7,7,kTeal);
+    text(L"Apolo está monitorando o sistema",statusX+34,43,202,22,gCaption,kText);
+    line(statusX+244,42,statusX+244,63,kBorder,1.0f);
+    line(statusX+252,53,statusX+257,53,kTeal,1.5f);
+    line(statusX+257,53,statusX+261,45,kTeal,1.5f);
+    line(statusX+261,45,statusX+266,61,kTeal,1.5f);
+    line(statusX+266,61,statusX+271,49,kTeal,1.5f);
+    line(statusX+271,49,statusX+276,49,kTeal,1.5f);
     line(gX,128,gX+gContentW,128,kBorder);
 }
 
@@ -312,13 +416,16 @@ void overview() {
     const float dx=gX+gContentW*0.59f+7;
     roundFill(dx,graphY,gContentW*0.41f-7,graphH,13,kPanel);
     roundStroke(dx,graphY,gContentW*0.41f-7,graphH,13,kBorder);
-    text(L"DIAGNÓSTICO",dx+17,graphY+15,gContentW*0.41f-35,28,gCaption,kTeal);
-    text(gData.diagnosis,dx+17,graphY+48,gContentW*0.41f-35,106,gWrap,kText);
+    drawApolloPortrait(dx+7,graphY+20,112,155);
+    line(dx+126,graphY+17,dx+126,graphY+168,kBorder,1.0f);
+    text(L"APOLO",dx+139,graphY+16,gContentW*0.41f-153,25,gMedium,kText);
+    text(L"ASSISTENTE DO SISTEMA",dx+139,graphY+39,gContentW*0.41f-153,22,gCaption,kTeal);
+    text(gData.diagnosis,dx+139,graphY+66,gContentW*0.41f-153,104,gWrap,kText);
 
     const float rowY=535;
     text(L"PRINCIPAIS PROCESSOS",gX+8,rowY,gContentW*0.5f,29,gMedium,kText);
-    button(gX+gContentW-304,rowY-5,108,34,L"Atualizar",kRefresh);
-    button(gX+gContentW-184,rowY-5,184,34,L"Limpar memória",kClean,true);
+    button(gX+gContentW-324,rowY-8,124,40,L"Atualizar",kRefresh);
+    button(gX+gContentW-188,rowY-8,188,40,L"Limpar memória",kClean,true);
     const float top=rowY+43;
     const int visible=std::clamp(static_cast<int>((gHeight-77.0f-top)/34.0f),1,3);
     processRows(top,visible,true);
@@ -444,7 +551,7 @@ bool makeFonts() {
        !mk(17,DWRITE_FONT_WEIGHT_SEMI_BOLD,&gMedium)||
        !mk(28,DWRITE_FONT_WEIGHT_BOLD,&gTitle)||
        !mk(37,DWRITE_FONT_WEIGHT_SEMI_BOLD,&gBig)||
-       !mk(14,DWRITE_FONT_WEIGHT_NORMAL,&gWrap))
+       !mk(12.5f,DWRITE_FONT_WEIGHT_NORMAL,&gWrap))
         return false;
     gWrap->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
     return true;

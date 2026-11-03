@@ -1,4 +1,4 @@
-// Apolo 0.6.0 - monitoramento de desempenho e limpeza conservadora para Windows 11.
+// Apolo 0.6.1 - monitoramento de desempenho e limpeza conservadora para Windows 11.
 // Implementacao independente, utilizando APIs documentadas do Windows.
 
 #include <windows.h>
@@ -595,7 +595,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
 
     HWND window = CreateWindowExW(
-        0, kWindowClass, L"Apolo v0.6 - Desempenho",
+        0, kWindowClass, L"Apolo v0.6.1 - Desempenho",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, 1140, 830,
         nullptr, nullptr, instance, nullptr);

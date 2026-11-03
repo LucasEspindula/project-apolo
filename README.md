@@ -1,18 +1,19 @@
 # Projeto Apolo
 
-**Versão atual: v0.6.0 (piloto) • Windows 11 x64 • C++20 nativo**
+**Versão atual: v0.6.1 (piloto) • Windows 11 x64 • C++20 nativo**
 
 O **Apolo** monitora CPU, RAM, E/S de disco e processos da conta atual, com uma rotina opcional de redução do *working set* de processos acessíveis. É uma implementação independente: não utiliza código do Mem Reduct. Não possui serviços de rede, telemetria, navegador embutido, atualizador, serviço do Windows ou elevação silenciosa.
 
-> **Aviso importante:** reduzir o *working set* pode aumentar a RAM física disponível, mas não garante computador mais rápido; pode causar recarga de páginas e lentidão. A limpeza automática é **desativada por padrão**. Ainda não houve validação funcional nem medição do consumo da v0.6 em Windows 11.
+> **Aviso importante:** reduzir o *working set* pode aumentar a RAM física disponível, mas não garante computador mais rápido; pode causar recarga de páginas e lentidão. A limpeza automática é **desativada por padrão**. Ainda não houve validação funcional nem medição do consumo da v0.6.1 em Windows 11.
 
-## v0.6 — Redesign nativo, elegante e leve
+## v0.6.1 — Redesign nativo e identidade do Apolo
 
 A interface foi reconstruída em **Win32 + Direct2D + DirectWrite**, sem Electron, WebView, Qt ou runtime pesado de interface. O objetivo é visual moderno com uso controlado de recursos; o consumo real só será conhecido após medições na máquina Windows.
 
 - **Menu lateral** com Visão geral, Desempenho, Processos, Histórico e Configurações.
 - **Identidade visual escura**: grafite/carvão, cards discretos, azul e ciano, tipografia Segoe UI, sem animações permanentes.
-- **Visão geral:** cards RAM/CPU/Disco, gráfico compacto com CPU/RAM, diagnóstico e principais processos; ação explícita **Limpar memória**.
+- **Apolo como assistente:** status em terceira pessoa (“Apolo está monitorando o sistema”), avisos em primeira pessoa e busto grego estilizado desenhado diretamente em Direct2D, sem imagem externa ou serviço adicional.
+- **Visão geral:** cards RAM/CPU/Disco, gráfico compacto com CPU/RAM, painel de diagnóstico com avatar e principais processos; botões **Atualizar** e **Limpar memória** com ícones e destaque visual.
 - **Desempenho:** gráficos integrados de CPU, RAM e taxa total do disco (MiB/s), com períodos 1, 5 e 15 minutos.
 - **Processos:** até 24 processos acessíveis da **mesma conta e sessão**, com PID e *working set*, ordenação por memória, nome ou PID e rolagem. Não oferece encerramento de processos.
 - **Histórico:** consulta interna das últimas operações registradas no arquivo CSV; opção **Abrir CSV** preservada.
@@ -137,6 +138,7 @@ project-apolo/
 - **v0.4:** gráficos locais, diagnóstico por histórico e lista ampliada.
 - **v0.5:** abas e barras visuais.
 - **v0.6 (piloto):** redesign nativo dark, navegação lateral, cards e gráficos integrados, lista e histórico na mesma interface, removendo o código de UI anterior.
+- **v0.6.1 (piloto):** identidade do Apolo como assistente, busto grego vetorial, status de monitoramento em terceira pessoa, diagnósticos em primeira pessoa e botões principais redesenhados.
 
 ## Próximas etapas
 
