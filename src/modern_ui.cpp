@@ -193,38 +193,10 @@ void drawApolloPortrait(float x,float y,float w,float h) {
         gTarget->DrawBitmap(gApolloBitmap,destination,1.0f,D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         return;
     }
-    ellipseStroke(x+5,y+5,w-10,h-10,kBlue,1.5f);
-    ellipseStroke(x+10,y+10,w-20,h-20,kBorder,1.0f);
+    // Não desenhar um busto substituto: se o asset não carregar, manter o espaço neutro.
+    roundStroke(x,y,w,h,14,kBorder);
+    text(L"RETRATO INDISPONÍVEL",x+4,y+h*0.45f,w-8,24,gCaption,kMuted);
 
-    // Louros laterais: referência clássica, reinterpretada em ciano.
-    for(int i=0;i<4;++i) {
-        const float t=static_cast<float>(i);
-        const float yy=y+h*(0.61f-t*0.105f);
-        line(x+w*0.19f,yy+5,x+w*(0.10f+t*0.012f),yy-5,kTeal,1.0f);
-        ellipseStroke(x+w*(0.055f+t*0.018f),yy-11,8,13,kTeal,1.0f);
-        line(x+w*0.81f,yy+5,x+w*(0.90f-t*0.012f),yy-5,kTeal,1.0f);
-        ellipseStroke(x+w*(0.865f-t*0.018f),yy-11,8,13,kTeal,1.0f);
-    }
-
-    // Busto de mármore estilizado, desenhado diretamente pelo Direct2D.
-    roundFill(x+w*0.19f,y+h*0.75f,w*0.62f,h*0.19f,15,0x8795A4);
-    roundFill(x+w*0.40f,y+h*0.59f,w*0.22f,h*0.23f,8,0xAAB6C3);
-    ellipseFill(x+w*0.27f,y+h*0.16f,w*0.49f,h*0.54f,0x778697);
-    ellipseFill(x+w*0.39f,y+h*0.22f,w*0.39f,h*0.47f,0xD5DDE6);
-
-    // Perfil, nariz, olhar e cachos da escultura.
-    line(x+w*0.69f,y+h*0.43f,x+w*0.86f,y+h*0.48f,0xD5DDE6,3.0f);
-    line(x+w*0.86f,y+h*0.48f,x+w*0.78f,y+h*0.52f,0xD5DDE6,2.0f);
-    line(x+w*0.73f,y+h*0.56f,x+w*0.81f,y+h*0.56f,0x778697,1.3f);
-    line(x+w*0.62f,y+h*0.43f,x+w*0.70f,y+h*0.43f,0x596879,1.5f);
-    line(x+w*0.60f,y+h*0.40f,x+w*0.72f,y+h*0.39f,0x778697,1.5f);
-    ellipseFill(x+w*0.30f,y+h*0.17f,w*0.19f,h*0.14f,0x9EABB8);
-    ellipseFill(x+w*0.39f,y+h*0.13f,w*0.18f,h*0.14f,0xAAB6C3);
-    ellipseFill(x+w*0.50f,y+h*0.14f,w*0.17f,h*0.13f,0x9EABB8);
-    ellipseFill(x+w*0.29f,y+h*0.29f,w*0.15f,h*0.13f,0xAAB6C3);
-    ellipseFill(x+w*0.35f,y+h*0.38f,w*0.11f,h*0.10f,0xAAB6C3);
-    line(x+w*0.29f,y+h*0.81f,x+w*0.53f,y+h*0.93f,kBorder,1.2f);
-    line(x+w*0.72f,y+h*0.81f,x+w*0.54f,y+h*0.93f,kBorder,1.2f);
 }
 std::wstring format(const wchar_t* pattern,double n) {
     wchar_t buffer[120]={};
@@ -249,20 +221,30 @@ bool resources() {
     if(SUCCEEDED(hr) && gWic) {
         wchar_t modulePath[MAX_PATH]{};
         GetModuleFileNameW(nullptr,modulePath,MAX_PATH);
-        std::filesystem::path imagePath(modulePath);
-        imagePath=imagePath.parent_path()/L"assets"/L"apolo_portrait.jpg";
-        IWICBitmapDecoder* decoder=nullptr;
-        IWICBitmapFrameDecode* frame=nullptr;
-        IWICFormatConverter* converter=nullptr;
-        if(SUCCEEDED(gWic->CreateDecoderFromFilename(imagePath.c_str(),nullptr,GENERIC_READ,
-                WICDecodeMetadataCacheOnLoad,&decoder)) &&
-           SUCCEEDED(decoder->GetFrame(0,&frame)) &&
-           SUCCEEDED(gWic->CreateFormatConverter(&converter)) &&
-           SUCCEEDED(converter->Initialize(frame,GUID_WICPixelFormat32bppPBGRA,
-                WICBitmapDitherTypeNone,nullptr,0.0,WICBitmapPaletteTypeCustom))) {
-            gTarget->CreateBitmapFromWicBitmap(converter,nullptr,&gApolloBitmap);
+        std::filesystem::path exeDir(modulePath);
+        exeDir=exeDir.parent_path();
+        const std::array<std::filesystem::path,3> imageCandidates={
+            exeDir/L"assets"/L"apolo_portrait.jpg",
+            exeDir.parent_path().parent_path().parent_path()/L"assets"/L"apolo_portrait.jpg",
+            std::filesystem::current_path()/L"assets"/L"apolo_portrait.jpg"
+        };
+        for(const auto& imagePath:imageCandidates) {
+            if(!std::filesystem::exists(imagePath))continue;
+            IWICBitmapDecoder* decoder=nullptr;
+            IWICBitmapFrameDecode* frame=nullptr;
+            IWICFormatConverter* converter=nullptr;
+            HRESULT imageHr=gWic->CreateDecoderFromFilename(imagePath.c_str(),nullptr,GENERIC_READ,
+                    WICDecodeMetadataCacheOnLoad,&decoder);
+            if(SUCCEEDED(imageHr))imageHr=decoder->GetFrame(0,&frame);
+            if(SUCCEEDED(imageHr))imageHr=gWic->CreateFormatConverter(&converter);
+            if(SUCCEEDED(imageHr))imageHr=converter->Initialize(frame,GUID_WICPixelFormat32bppPBGRA,
+                    WICBitmapDitherTypeNone,nullptr,0.0,WICBitmapPaletteTypeCustom);
+            if(SUCCEEDED(imageHr))imageHr=gTarget->CreateBitmapFromWicBitmap(converter,nullptr,&gApolloBitmap);
+            if(converter)converter->Release();
+            if(frame)frame->Release();
+            if(decoder)decoder->Release();
+            if(gApolloBitmap)break;
         }
-        if(converter)converter->Release();if(frame)frame->Release();if(decoder)decoder->Release();
     }
     if(FAILED(hr)) {
         release(gTarget);

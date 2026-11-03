@@ -12,7 +12,7 @@ A interface foi reconstruída em **Win32 + Direct2D + DirectWrite**, sem Electro
 
 - **Menu lateral** com Visão geral, Desempenho, Processos, Histórico e Configurações.
 - **Identidade visual escura**: grafite/carvão, cards discretos, azul e ciano, tipografia Segoe UI, sem animações permanentes.
-- **Apolo como assistente:** status em terceira pessoa (“Apolo está monitorando o sistema”), avisos em primeira pessoa e retrato real em JPEG carregado por WIC/Direct2D de `assets/apolo_portrait.jpg`. O arquivo de imagem é independente dos desenhos da interface.
+- **Apolo como assistente:** status em terceira pessoa (“Apolo está monitorando o sistema”), avisos em primeira pessoa e retrato real em JPEG carregado por WIC/Direct2D de `assets/apolo_portrait.jpg`. O arquivo de imagem é carregado de `assets/apolo_portrait.jpg` (na pasta do executável, na raiz do projeto ou no diretório de trabalho). Não existe busto vetorial de substituição.
 - **Visão geral:** cards RAM/CPU/Disco, gráfico compacto com CPU/RAM, painel de diagnóstico com avatar e principais processos; botões **Atualizar** e **Limpar memória** com ícones e destaque visual.
 - **Desempenho:** gráficos integrados de CPU, RAM e taxa total do disco (MiB/s), com períodos 1, 5 e 15 minutos.
 - **Processos:** até 24 processos acessíveis da **mesma conta e sessão**, com PID e *working set*, ordenação por memória, nome ou PID e rolagem. Não oferece encerramento de processos.
