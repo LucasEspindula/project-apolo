@@ -485,8 +485,8 @@ LRESULT CALLBACK mainWindowProc(HWND window,UINT message,
     }
     case WM_GETMINMAXINFO: {
         auto* limits=reinterpret_cast<MINMAXINFO*>(lParam);
-        limits->ptMinTrackSize.x=950;
-        limits->ptMinTrackSize.y=765;
+        limits->ptMinTrackSize.x=1280;
+        limits->ptMinTrackSize.y=820;
         return 0;
     }
     case WM_SIZE:
@@ -595,9 +595,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     }
 
     HWND window = CreateWindowExW(
-        0, kWindowClass, L"Apolo v0.6.1 - Desempenho",
+        0, kWindowClass, L"Apolo v0.7.0 - Desempenho",
         WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1140, 830,
+        CW_USEDEFAULT, CW_USEDEFAULT, 1640, 960,
         nullptr, nullptr, instance, nullptr);
 
     if (!window) {

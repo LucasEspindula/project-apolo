@@ -4,6 +4,8 @@
 #include <d2d1.h>
 #include <d2d1helper.h>
 #include <dwrite.h>
+#include <wincodec.h>
+#include <filesystem>
 
 #include <algorithm>
 #include <array>
@@ -30,6 +32,8 @@ IDWriteTextFormat* gMedium = nullptr;
 IDWriteTextFormat* gTitle = nullptr;
 IDWriteTextFormat* gBig = nullptr;
 IDWriteTextFormat* gWrap = nullptr;
+IWICImagingFactory* gWic = nullptr;
+ID2D1Bitmap* gApolloBitmap = nullptr;
 HWND gHost = nullptr;
 
 constexpr UINT32 kBackground = 0x0E131A;
@@ -179,6 +183,16 @@ void drawApolloEmblem(float x,float y,float size) {
     ellipseStroke(cx+7,cy-13,6,9,kTeal,1.0f);
 }
 void drawApolloPortrait(float x,float y,float w,float h) {
+    if(gApolloBitmap) {
+        const auto size=gApolloBitmap->GetSize();
+        const float sourceAspect=size.width/size.height;
+        float drawW=w,drawH=h;
+        if(drawW/drawH>sourceAspect)drawW=drawH*sourceAspect;else drawH=drawW/sourceAspect;
+        const float left=x+(w-drawW)*0.5f,top=y+(h-drawH)*0.5f;
+        const auto destination=rect(left,top,drawW,drawH);
+        gTarget->DrawBitmap(gApolloBitmap,destination,1.0f,D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        return;
+    }
     ellipseStroke(x+5,y+5,w-10,h-10,kBlue,1.5f);
     ellipseStroke(x+10,y+10,w-20,h-20,kBorder,1.0f);
 
@@ -232,17 +246,35 @@ bool resources() {
     // Coordenadas em pixels para manter mouse e desenho alinhados.
     gTarget->SetDpi(96.0f,96.0f);
     hr=gTarget->CreateSolidColorBrush(color(kText),&gBrush);
+    if(SUCCEEDED(hr) && gWic) {
+        wchar_t modulePath[MAX_PATH]{};
+        GetModuleFileNameW(nullptr,modulePath,MAX_PATH);
+        std::filesystem::path imagePath(modulePath);
+        imagePath=imagePath.parent_path()/L"assets"/L"apolo_portrait.jpg";
+        IWICBitmapDecoder* decoder=nullptr;
+        IWICBitmapFrameDecode* frame=nullptr;
+        IWICFormatConverter* converter=nullptr;
+        if(SUCCEEDED(gWic->CreateDecoderFromFilename(imagePath.c_str(),nullptr,GENERIC_READ,
+                WICDecodeMetadataCacheOnLoad,&decoder)) &&
+           SUCCEEDED(decoder->GetFrame(0,&frame)) &&
+           SUCCEEDED(gWic->CreateFormatConverter(&converter)) &&
+           SUCCEEDED(converter->Initialize(frame,GUID_WICPixelFormat32bppPBGRA,
+                WICBitmapDitherTypeNone,nullptr,0.0,WICBitmapPaletteTypeCustom))) {
+            gTarget->CreateBitmapFromWicBitmap(converter,nullptr,&gApolloBitmap);
+        }
+        if(converter)converter->Release();if(frame)frame->Release();if(decoder)decoder->Release();
+    }
     if(FAILED(hr)) {
         release(gTarget);
         return false;
     }
     return true;
 }
-void discardTarget() { release(gBrush);release(gTarget); }
+void discardTarget() { release(gApolloBitmap); release(gBrush);release(gTarget); }
 void updateGeometry() {
-    gSide=gWidth<1030?190.0f:222.0f;
-    gX=gSide+27;
-    gContentW=std::max(380.0f,gWidth-gX-26.0f);
+    gSide=gWidth<1200?220.0f:278.0f;
+    gX=gSide+42;
+    gContentW=std::max(520.0f,gWidth-gX-38.0f);
 }
 void paintFrame() {
     gHitCount=0;
@@ -252,25 +284,26 @@ void paintFrame() {
     gTarget->FillRectangle(rect(0,0,gSide,gHeight),gBrush);
     line(gSide,0,gSide,gHeight,kBorder);
 
-    drawApolloEmblem(27,29,31);
-    text(L"APOLO",64,30,gSide-70,48,gTitle,kText);
-    text(L"PERFORMANCE ENGINE",31,80,gSide-35,25,gCaption,kMuted);
-    line(22,125,gSide-22,125,kBorder);
+    drawApolloPortrait(25,17,gSide-50,188);
+    text(L"APOLO",28,204,gSide-56,49,gTitle,kText);
+    text(L"ASSISTENTE DE DESEMPENHO",22,251,gSide-44,24,gCaption,kMuted);
+    line(22,288,gSide-22,288,kBorder);
 
     const std::array<const wchar_t*,5> menu={
         L"Visão geral",L"Desempenho",L"Processos",L"Histórico",L"Configurações"
     };
     for(int i=0;i<5;++i) {
-        const float y=157.0f+i*58.0f;
+        const float y=316.0f+i*68.0f;
         if(gPage==i) {
-            roundFill(17,y,gSide-33,45,9,kPanelHover);
-            roundFill(17,y+7,3,31,1,kBlue);
+            roundFill(12,y,gSide-24,54,11,kPanelHover);
+            roundStroke(12,y,gSide-24,54,11,kBlue);
+            roundFill(12,y+8,3,38,1,kBlue);
         }
-        text(menu[i],35,y+11,gSide-55,28,gBody,gPage==i?kText:kMuted);
-        hit(17,y,gSide-33,46,kNavBase+i);
+        text(menu[i],54,y+13,gSide-80,30,gBody,gPage==i?kText:kMuted);
+        hit(12,y,gSide-24,54,kNavBase+i);
     }
     text(L"NATIVO  /  OFFLINE",26,gHeight-96,gSide-40,24,gCaption,kTeal);
-    text(L"Versão 0.6.1  •  Piloto",26,gHeight-69,gSide-39,25,gCaption,kMuted);
+    text(L"Versão 0.7.0  •  Piloto",26,gHeight-69,gSide-39,25,gCaption,kMuted);
 
     const wchar_t* titles[]={L"Visão geral",L"Desempenho",L"Processos",
                              L"Histórico",L"Configurações"};
@@ -411,7 +444,7 @@ void overview() {
             L"—",gData.diskValid?L"Leitura + gravação":L"Contadores indisponíveis",
         0,kAmber,false);
 
-    const float graphY=328,graphH=185;
+    const float graphY=355,graphH=std::clamp(gHeight*0.32f,245.0f,315.0f);
     drawGraph(gX,graphY,gContentW*0.59f-8,graphH,3);
     const float dx=gX+gContentW*0.59f+7;
     roundFill(dx,graphY,gContentW*0.41f-7,graphH,13,kPanel);
@@ -422,12 +455,12 @@ void overview() {
     text(L"ASSISTENTE DO SISTEMA",dx+139,graphY+39,gContentW*0.41f-153,22,gCaption,kTeal);
     text(gData.diagnosis,dx+139,graphY+66,gContentW*0.41f-153,104,gWrap,kText);
 
-    const float rowY=535;
+    const float rowY=graphY+graphH+22.0f;
     text(L"PRINCIPAIS PROCESSOS",gX+8,rowY,gContentW*0.5f,29,gMedium,kText);
     button(gX+gContentW-324,rowY-8,124,40,L"Atualizar",kRefresh);
     button(gX+gContentW-188,rowY-8,188,40,L"Limpar memória",kClean,true);
-    const float top=rowY+43;
-    const int visible=std::clamp(static_cast<int>((gHeight-77.0f-top)/34.0f),1,3);
+    const float top=rowY+49;
+    const int visible=std::clamp(static_cast<int>((gHeight-top-36.0f)/34.0f),1,8);
     processRows(top,visible,true);
 }
 
@@ -573,7 +606,8 @@ std::wstring wide(const std::string& input) {
 bool modernCreate(HWND host) {
     gHost=host;
     HRESULT hr=D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,&gFactory);
-    if(FAILED(hr)||!makeFonts()||!resources()) {
+    if(FAILED(hr)||FAILED(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&gWic)))||!makeFonts()||!resources()) {
         modernDestroy();
         return false;
     }
@@ -583,7 +617,7 @@ void modernDestroy() {
     discardTarget();
     release(gCaption);release(gBody);release(gMedium);
     release(gTitle);release(gBig);release(gWrap);
-    release(gWrite);release(gFactory);
+    release(gWrite);release(gWic);release(gFactory);
     gHost=nullptr;
 }
 void modernResize(unsigned w,unsigned h) {

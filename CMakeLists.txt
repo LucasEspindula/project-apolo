@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(Apolo VERSION 0.6.1 LANGUAGES CXX)
+project(Apolo VERSION 0.7.0 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "Apolo requer Windows 11.")
@@ -17,7 +17,7 @@ target_compile_definitions(Apolo PRIVATE
 )
 target_link_libraries(Apolo PRIVATE
     Psapi Advapi32 User32 Gdi32 Shell32 Ole32 Pdh
-    D2d1 Dwrite Dwmapi
+    D2d1 Dwrite Dwmapi Windowscodecs
 )
 if(MSVC)
     target_compile_options(Apolo PRIVATE /W4 /permissive- /EHsc /utf-8)
