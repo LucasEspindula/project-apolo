@@ -575,6 +575,13 @@ LRESULT CALLBACK mainWindowProc(HWND window,UINT message,
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
+    // WIC usa COM; inicialize a apartment STA antes de criar a interface.
+    const HRESULT comResult=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+    if(FAILED(comResult)) {
+        MessageBoxW(nullptr,L"Não foi possível inicializar os serviços COM do Windows.",
+                    L"Apolo",MB_OK|MB_ICONERROR);
+        return 3;
+    }
     SetProcessDPIAware();
     loadConfig();
     gTaskbarCreated=RegisterWindowMessageW(L"TaskbarCreated");
@@ -614,5 +621,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-    return static_cast<int>(msg.wParam);
+    const int exitCode=static_cast<int>(msg.wParam);
+    CoUninitialize();
+    return exitCode;
 }

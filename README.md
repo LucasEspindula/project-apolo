@@ -142,6 +142,7 @@ project-apolo/
 - **v0.6 (piloto):** redesign nativo dark, navegação lateral, cards e gráficos integrados, lista e histórico na mesma interface, removendo o código de UI anterior.
 - **v0.6.1 (piloto):** identidade do Apolo como assistente e diagnósticos em primeira pessoa.
 - **v0.7.0 (piloto):** composição ampliada, retrato real via WIC, sidebar com identidade clássica e painel de visão geral mais alto.
+- **Correção de inicialização:** COM é inicializado explicitamente em STA antes da criação da interface, requisito para ativar o componente WIC que carrega o retrato JPEG.
 
 ## Próximas etapas
 
